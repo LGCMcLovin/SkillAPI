@@ -1,5 +1,8 @@
 package com.sucy.skill.listener;
 
+import com.rit.sucy.gui.MapData;
+import com.rit.sucy.gui.MapMenu;
+import com.rit.sucy.gui.MapMenuManager;
 import com.rit.sucy.items.InventoryManager;
 import com.sucy.skill.SkillAPI;
 import com.sucy.skill.api.event.PlayerClassChangeEvent;
@@ -9,10 +12,9 @@ import com.sucy.skill.api.event.PlayerSkillUpgradeEvent;
 import com.sucy.skill.api.player.PlayerData;
 import com.sucy.skill.api.player.PlayerSkillBar;
 import com.sucy.skill.api.skills.Skill;
-import com.sucy.skill.api.skills.SkillShot;
-import com.sucy.skill.api.skills.TargetSkill;
-import com.sucy.skill.dynamic.DynamicSkill;
-import com.sucy.skill.tree.SkillTree;
+import com.sucy.skill.gui.SkillDetailMenu;
+import com.sucy.skill.gui.SkillListMenu;
+import com.sucy.skill.tree.basic.InventoryTree;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Material;
@@ -45,6 +47,14 @@ public class BarListener implements Listener
     {
         this.plugin = plugin;
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
+        for (Player player : plugin.getServer().getOnlinePlayers())
+        {
+            PlayerData data = SkillAPI.getPlayerData(player);
+            if (data.hasClass())
+            {
+                data.getSkillBar().setup(player);
+            }
+        }
     }
 
     /**
@@ -85,7 +95,6 @@ public class BarListener implements Listener
     @EventHandler
     public void onProfess(PlayerClassChangeEvent event)
     {
-
         Player p = event.getPlayerData().getPlayer();
 
         // Professing as a first class sets up the skill bar
@@ -104,7 +113,6 @@ public class BarListener implements Listener
             PlayerSkillBar bar = event.getPlayerData().getSkillBar();
             bar.reset();
             bar.clear(p);
-            bar.update(p);
         }
     }
 
@@ -151,9 +159,17 @@ public class BarListener implements Listener
      * @param event event details
      */
     @EventHandler
-    public void onDowngrade(PlayerSkillDowngradeEvent event)
+    public void onDowngrade(final PlayerSkillDowngradeEvent event)
     {
-        SkillAPI.getPlayerData(event.getPlayerData().getPlayer()).getSkillBar().update(event.getPlayerData().getPlayer());
+        plugin.getServer().getScheduler().runTaskLater(plugin, new Runnable()
+        {
+            @Override
+            public void run()
+            {
+                SkillAPI.getPlayerData(event.getPlayerData().getPlayer()).getSkillBar().update(event.getPlayerData().getPlayer());
+            }
+        }, 1);
+
     }
 
     /**
@@ -161,7 +177,7 @@ public class BarListener implements Listener
      *
      * @param event event details
      */
-    @EventHandler
+    @EventHandler(priority = EventPriority.LOWEST)
     public void onDeath(PlayerDeathEvent event)
     {
         PlayerData data = SkillAPI.getPlayerData(event.getEntity());
@@ -176,7 +192,7 @@ public class BarListener implements Listener
      *
      * @param event event details
      */
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onRespawn(PlayerRespawnEvent event)
     {
         PlayerData data = SkillAPI.getPlayerData(event.getPlayer());
@@ -195,7 +211,6 @@ public class BarListener implements Listener
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onAssign(InventoryClickEvent event)
     {
-
         // Players without a class aren't effected
         PlayerData data = SkillAPI.getPlayerData((Player) event.getWhoClicked());
         if (!data.hasClass())
@@ -205,7 +220,7 @@ public class BarListener implements Listener
 
         // Disabled skill bars aren't affected either
         final PlayerSkillBar skillBar = data.getSkillBar();
-        if (!skillBar.isEnabled())
+        if (!skillBar.isSetup())
         {
             return;
         }
@@ -213,7 +228,7 @@ public class BarListener implements Listener
         // Prevent moving skill icons
         if (event.getAction() == InventoryAction.HOTBAR_SWAP || event.getAction() == InventoryAction.HOTBAR_MOVE_AND_READD)
         {
-            if (!skillBar.isWeaponSlot(event.getHotbarButton()))
+            if (!skillBar.isWeaponSlot(event.getHotbarButton()) || !skillBar.isWeaponSlot(event.getSlot()))
             {
                 event.setCancelled(true);
             }
@@ -245,9 +260,9 @@ public class BarListener implements Listener
         }
 
         // Must be a skill tree
-        if (InventoryManager.isMatching(event.getInventory(), SkillTree.INVENTORY_KEY))
+        if (InventoryManager.isMatching(event.getInventory(), InventoryTree.INVENTORY_KEY))
         {
-            SkillTree tree = SkillAPI.getClass(event.getInventory().getName()).getSkillTree();
+            InventoryTree tree = (InventoryTree) SkillAPI.getClass(event.getInventory().getName()).getSkillTree();
 
             // Must be hovering over a skill
             if (tree.isSkill(event.getWhoClicked(), event.getRawSlot()))
@@ -276,17 +291,32 @@ public class BarListener implements Listener
     @EventHandler
     public void onCast(PlayerItemHeldEvent event)
     {
+        // Doesn't do anything without a class
         PlayerData data = SkillAPI.getPlayerData(event.getPlayer());
         if (!data.hasClass())
         {
             return;
         }
 
+        // Must be a skill slot when the bar is set up
         PlayerSkillBar bar = data.getSkillBar();
-        if (!bar.isWeaponSlot(event.getNewSlot()) && bar.isEnabled())
+        if (!bar.isWeaponSlot(event.getNewSlot()) && bar.isSetup())
         {
             event.setCancelled(true);
-            bar.apply(event.getNewSlot());
+
+            MapData held = MapMenuManager.getActiveMenuData(event.getPlayer());
+            if (held != null)
+            {
+                MapMenu menu = held.getMenu(event.getPlayer());
+                if (menu instanceof SkillListMenu || menu instanceof SkillDetailMenu)
+                {
+                    bar.assign(SkillListMenu.getSkill(event.getPlayer()), event.getNewSlot());
+                }
+            }
+            else
+            {
+                bar.apply(event.getNewSlot());
+            }
         }
     }
 

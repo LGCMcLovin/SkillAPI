@@ -4,8 +4,9 @@ import com.sucy.skill.api.projectile.CustomProjectile;
 import com.sucy.skill.api.projectile.ParticleProjectile;
 import com.sucy.skill.api.projectile.ProjectileCallback;
 import com.sucy.skill.dynamic.EffectComponent;
+import com.sucy.skill.dynamic.TempEntity;
 import org.bukkit.Bukkit;
-import org.bukkit.entity.Bat;
+import org.bukkit.Location;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.util.Vector;
@@ -24,6 +25,7 @@ public class ParticleProjectileMechanic extends EffectComponent implements Proje
     private static final String HEIGHT = "height";
     private static final String RADIUS = "radius";
     private static final String SPREAD = "spread";
+    private static final String ALLY   = "group";
 
     /**
      * Executes the component
@@ -38,19 +40,24 @@ public class ParticleProjectileMechanic extends EffectComponent implements Proje
     public boolean execute(LivingEntity caster, int level, List<LivingEntity> targets)
     {
         // Get common values
-        int amount = (int) settings.getAttr(AMOUNT, level, 1.0);
+        boolean isSelf = targets.size() == 1 && targets.get(0) == caster;
+        int amount = (int) attr(caster, AMOUNT, level, 1.0, isSelf);
         String spread = settings.getString(SPREAD, "cone").toLowerCase();
+        boolean ally = settings.getString(ALLY, "enemy").toLowerCase().equals("ally");
+        settings.set("level", level);
 
         // Fire from each target
         for (LivingEntity target : targets)
         {
+            Location loc = target.getLocation();
+
             // Apply the spread type
             ArrayList<ParticleProjectile> list;
             if (spread.equals("rain"))
             {
-                double radius = settings.getAttr(RADIUS, level, 2.0);
-                double height = settings.getAttr(HEIGHT, level, 8.0);
-                list = ParticleProjectile.rain(caster, target.getLocation(), settings, radius, height, amount, this);
+                double radius = attr(caster, RADIUS, level, 2.0, isSelf);
+                double height = attr(caster, HEIGHT, level, 8.0, isSelf);
+                list = ParticleProjectile.rain(caster, level, loc, settings, radius, height, amount, this);
             }
             else
             {
@@ -60,14 +67,15 @@ public class ParticleProjectileMechanic extends EffectComponent implements Proje
                     dir.setY(0);
                     dir.normalize();
                 }
-                double angle = settings.getAttr(ANGLE, level, 30.0);
-                list = ParticleProjectile.spread(caster, dir, target.getLocation(), settings, angle, amount, this);
+                double angle = attr(caster, ANGLE, level, 30.0, isSelf);
+                list = ParticleProjectile.spread(caster, level, dir, loc.add(0, 0.5, 0), settings, angle, amount, this);
             }
 
             // Set metadata for when the callback happens
             for (ParticleProjectile p : list)
             {
                 p.setMetadata(LEVEL, new FixedMetadataValue(Bukkit.getPluginManager().getPlugin("SkillAPI"), level));
+                p.setAllyEnemy(ally, !ally);
             }
         }
 
@@ -83,20 +91,12 @@ public class ParticleProjectileMechanic extends EffectComponent implements Proje
     @Override
     public void callback(CustomProjectile projectile, LivingEntity hit)
     {
-        boolean remove = false;
         if (hit == null)
         {
-            hit = projectile.getLocation().getWorld().spawn(projectile.getLocation(), Bat.class);
-            hit.setMaxHealth(10000);
-            hit.setHealth(hit.getMaxHealth());
-            remove = true;
+            hit = new TempEntity(projectile.getLocation());
         }
         ArrayList<LivingEntity> targets = new ArrayList<LivingEntity>();
         targets.add(hit);
         executeChildren(projectile.getShooter(), projectile.getMetadata(LEVEL).get(0).asInt(), targets);
-        if (remove)
-        {
-            hit.remove();
-        }
     }
 }

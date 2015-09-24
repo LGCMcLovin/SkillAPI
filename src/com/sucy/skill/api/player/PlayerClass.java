@@ -1,5 +1,7 @@
 package com.sucy.skill.api.player;
 
+import com.rit.sucy.config.Filter;
+import com.rit.sucy.config.FilterType;
 import com.sucy.skill.SkillAPI;
 import com.sucy.skill.api.classes.RPGClass;
 import com.sucy.skill.api.enums.ExpSource;
@@ -9,6 +11,9 @@ import com.sucy.skill.api.event.PlayerExperienceLostEvent;
 import com.sucy.skill.api.event.PlayerGainSkillPointsEvent;
 import com.sucy.skill.api.event.PlayerLevelUpEvent;
 import com.sucy.skill.api.skills.Skill;
+import com.sucy.skill.dynamic.DynamicSkill;
+import com.sucy.skill.language.NotificationNodes;
+import com.sucy.skill.language.RPGFilter;
 import org.bukkit.Bukkit;
 
 /**
@@ -290,6 +295,18 @@ public final class PlayerClass
         // Add experience if not cancelled
         if (!event.isCancelled() && event.getExp() > 0)
         {
+            if (SkillAPI.getSettings().isShowExpMessages() && player.getPlayer() != null)
+            {
+                SkillAPI.getLanguage().sendMessage(
+                        NotificationNodes.EXP,
+                        player.getPlayer(),
+                        FilterType.COLOR,
+                        RPGFilter.EXP.setReplacement(amount + ""),
+                        RPGFilter.CLASS.setReplacement(classData.getName()),
+                        Filter.AMOUNT.setReplacement(amount + "")
+                );
+            }
+
             exp += amount;
             totalExp += amount;
             checkLevelUp();
@@ -344,7 +361,7 @@ public final class PlayerClass
         // Count the number of levels gained, if any
         int levels = 0;
         int required;
-        while (exp >= (required = classData.getRequiredExp(level + levels)))
+        while (exp >= (required = classData.getRequiredExp(level + levels)) && level + levels < classData.getMaxLevel())
         {
             exp -= required;
             levels++;
@@ -354,6 +371,13 @@ public final class PlayerClass
         if (levels > 0)
         {
             giveLevels(levels);
+
+            // Level up effect
+            if (SkillAPI.getSettings().hasLevelUpEffect())
+            {
+                DynamicSkill skill = SkillAPI.getSettings().getLevelUpSkill();
+                skill.cast(player.getPlayer(), level);
+            }
         }
     }
 
@@ -379,29 +403,24 @@ public final class PlayerClass
         if (amount <= 0) return;
         level += amount;
         points += classData.getGroupSettings().getPointsPerLevel() * amount;
-        /*
-        SkillAPI.getLanguage().sendMessage(
-                OtherNodes.LEVEL_UP,
-                player.getPlayer(),
-                FilterType.COLOR,
-                RPGFilter.LEVEL.setReplacement(level + ""),
-                RPGFilter.CLASS.setReplacement(classData.getName()),
-                RPGFilter.POINTS.setReplacement(points + ""),
-                Filter.AMOUNT.setReplacement(amount + "")
-        );
+        getPlayerData().giveAttribPoints(classData.getGroupSettings().getAttribsPerLevel() * amount);
 
-        // Max Level
-        if (isLevelMaxed())
+        if (SkillAPI.getSettings().isShowLevelMessages() && player.getPlayer() != null)
         {
             SkillAPI.getLanguage().sendMessage(
-                    OtherNodes.MAX_LEVEL,
+                    NotificationNodes.LVL,
                     player.getPlayer(),
                     FilterType.COLOR,
                     RPGFilter.LEVEL.setReplacement(level + ""),
-                    RPGFilter.CLASS.setReplacement(classData.getName())
+                    RPGFilter.CLASS.setReplacement(classData.getName()),
+                    RPGFilter.POINTS.setReplacement(points + ""),
+                    Filter.AMOUNT.setReplacement(amount + "")
             );
         }
-        */
+
+        // Update health/mana
+        getPlayerData().updateHealthAndMana(getPlayerData().getPlayer());
+        getPlayerData().autoLevel();
 
         // Call the event
         PlayerLevelUpEvent event = new PlayerLevelUpEvent(this, amount);

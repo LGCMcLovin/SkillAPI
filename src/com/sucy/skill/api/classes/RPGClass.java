@@ -1,5 +1,6 @@
 package com.sucy.skill.api.classes;
 
+import com.rit.sucy.config.parse.DataSection;
 import com.rit.sucy.text.TextFormatter;
 import com.sucy.skill.SkillAPI;
 import com.sucy.skill.api.Settings;
@@ -8,10 +9,10 @@ import com.sucy.skill.api.skills.Skill;
 import com.sucy.skill.api.util.Data;
 import com.sucy.skill.data.GroupSettings;
 import com.sucy.skill.tree.SkillTree;
+import com.sucy.skill.tree.map.MapTree;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
-import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.event.Listener;
 import org.bukkit.inventory.ItemStack;
 
@@ -27,7 +28,7 @@ public abstract class RPGClass
 
     private OfflinePlayer manaPlayer;
     private SkillTree     skillTree;
-    private RPGClass      parent;
+    private String        parent;
     private ItemStack     icon;
     private TreeType      tree;
     private String        name;
@@ -97,7 +98,7 @@ public abstract class RPGClass
      */
     protected RPGClass(String name, ItemStack icon, int maxLevel, String group, String parent)
     {
-        this.parent = SkillAPI.getClass(parent);
+        this.parent = parent;
         this.icon = icon;
         this.name = name;
         this.prefix = name;
@@ -138,6 +139,17 @@ public abstract class RPGClass
     public String getPrefix()
     {
         return prefix;
+    }
+
+    /**
+     * Checks whether or not the class needs permission in
+     * order to profess as it
+     *
+     * @return true if needs permission, false otherwise
+     */
+    public boolean isNeedsPermission()
+    {
+        return needsPermission;
     }
 
     /**
@@ -192,7 +204,7 @@ public abstract class RPGClass
      */
     public boolean hasParent()
     {
-        return parent != null;
+        return getParent() != null;
     }
 
     /**
@@ -202,7 +214,7 @@ public abstract class RPGClass
      */
     public RPGClass getParent()
     {
-        return parent;
+        return SkillAPI.getClass(parent);
     }
 
     /**
@@ -263,6 +275,26 @@ public abstract class RPGClass
     }
 
     /**
+     * Retrieves the base amount of health for the class
+     *
+     * @return base amount of health for the class
+     */
+    public double getBaseHealth()
+    {
+        return settings.getBase(ClassAttribute.HEALTH);
+    }
+
+    /**
+     * Retrieves the amount of health gained per level for the class
+     *
+     * @return health gained per level
+     */
+    public double getHealthScale()
+    {
+        return settings.getScale(ClassAttribute.HEALTH);
+    }
+
+    /**
      * Retrieves the amount of max mana this class provides
      *
      * @param level current level of the class
@@ -272,6 +304,26 @@ public abstract class RPGClass
     public double getMana(int level)
     {
         return settings.getAttr(ClassAttribute.MANA, level);
+    }
+
+    /**
+     * Retrieves the base amount of mana for the class
+     *
+     * @return base amount of mana for the class
+     */
+    public double getBaseMana()
+    {
+        return settings.getBase(ClassAttribute.MANA);
+    }
+
+    /**
+     * Retrieves the amount of mana gained per level for the class
+     *
+     * @return mana gained per level
+     */
+    public double getManaScale()
+    {
+        return settings.getScale(ClassAttribute.MANA);
     }
 
     /**
@@ -302,6 +354,9 @@ public abstract class RPGClass
      */
     public ArrayList<Skill> getSkills()
     {
+        ArrayList<Skill> skills = new ArrayList<Skill>();
+        skills.addAll(this.skills);
+        if (hasParent() && !getGroupSettings().isProfessReset()) skills.addAll(getParent().getSkills());
         return skills;
     }
 
@@ -454,29 +509,37 @@ public abstract class RPGClass
     //                                                   //
     ///////////////////////////////////////////////////////
 
-    private static final String WEAPON   = "weapons";
-    private static final String PROJECTS = "projectiles";
-    private static final String SKILLS   = "skills";
-    private static final String PARENT   = "parent";
-    private static final String ITEM     = "item";
-    private static final String NAME     = "name";
-    private static final String PREFIX   = "prefix";
-    private static final String GROUP    = "group";
-    private static final String MANA     = "mana";
-    private static final String MAX      = "max";
-    private static final String EXP      = "exp-source";
-    private static final String REGEN    = "mana-regen";
-    private static final String PERM     = "perm";
-    private static final String ATTR     = "attributes";
-    private static final String TREE     = "tree";
+    private static final String SKILLS = "skills";
+    private static final String PARENT = "parent";
+    private static final String NAME   = "name";
+    private static final String PREFIX = "prefix";
+    private static final String GROUP  = "group";
+    private static final String MANA   = "mana";
+    private static final String MAX    = "max-level";
+    private static final String EXP    = "exp-source";
+    private static final String REGEN  = "mana-regen";
+    private static final String PERM   = "needs-permission";
+    private static final String ATTR   = "attributes";
+    private static final String TREE   = "tree";
 
     /**
      * Saves the class template data to the config
      *
      * @param config config to save to
      */
-    public void save(ConfigurationSection config)
+    public void save(DataSection config)
     {
+        config.set(NAME, name);
+        config.set(PREFIX, prefix.replace(ChatColor.COLOR_CHAR, '&'));
+        config.set(GROUP, group);
+        config.set(MANA, mana);
+        config.set(MAX, maxLevel);
+        config.set(PARENT, parent);
+        config.set(PERM, needsPermission);
+        settings.save(config.createSection(ATTR));
+        config.set(REGEN, manaRegen);
+        config.set(TREE, tree.toString());
+
         ArrayList<String> skillNames = new ArrayList<String>();
         for (Skill skill : skills)
         {
@@ -484,23 +547,8 @@ public abstract class RPGClass
         }
         config.set(SKILLS, skillNames);
 
-        if (parent != null)
-        {
-            config.set(PARENT, parent.getName());
-        }
-
         Data.serializeIcon(icon, config);
-        config.set(NAME, name);
-        config.set(PREFIX, prefix);
-        config.set(GROUP, group);
-        config.set(MANA, mana);
-        config.set(MAX, maxLevel);
         config.set(EXP, expSources);
-        config.set(REGEN, manaRegen);
-        config.set(PERM, needsPermission);
-        config.set(TREE, tree.toString());
-
-        settings.save(config.createSection(ATTR));
     }
 
     /**
@@ -509,60 +557,12 @@ public abstract class RPGClass
      *
      * @param config config to save to
      */
-    public void softSave(ConfigurationSection config)
+    public void softSave(DataSection config)
     {
-
-        boolean neededOnly = config.getKeys(false).size() > 0;
-
-        if (skills.size() > 0 && !neededOnly)
+        boolean neededOnly = config.keys().size() > 0;
+        if (!neededOnly)
         {
-            ArrayList<String> skillNames = new ArrayList<String>();
-            for (Skill skill : skills)
-            {
-                skillNames.add(skill.getName());
-            }
-            config.set(SKILLS, skillNames);
-        }
-
-        if (parent != null && !neededOnly)
-        {
-            config.set(PARENT, parent.getName());
-        }
-        if (!config.isSet(NAME))
-        {
-            config.set(NAME, name);
-        }
-        if (!config.isSet(PREFIX))
-        {
-            config.set(PREFIX, prefix.replace(ChatColor.COLOR_CHAR, '&'));
-        }
-        if (!config.isSet(group))
-        {
-            config.set(GROUP, group);
-        }
-        if (!config.isSet(MANA))
-        {
-            config.set(MANA, mana);
-        }
-        if (!config.isSet(MAX))
-        {
-            config.set(MAX, maxLevel);
-        }
-        if (!config.isSet(EXP))
-        {
-            config.set(EXP, expSources);
-        }
-        if (!config.isSet(REGEN))
-        {
-            config.set(REGEN, manaRegen);
-        }
-        if (!config.isSet(PERM))
-        {
-            config.set(PERM, needsPermission);
-        }
-        if (!config.isSet(TREE))
-        {
-            config.set(TREE, tree.toString());
+            save(config);
         }
     }
 
@@ -571,22 +571,9 @@ public abstract class RPGClass
      *
      * @param config config to load from
      */
-    public void load(ConfigurationSection config)
+    public void load(DataSection config)
     {
-        if (config.isList(SKILLS))
-        {
-            skills.clear();
-            for (String name : config.getStringList(SKILLS))
-            {
-                Skill skill = SkillAPI.getSkill(name);
-                if (skill != null)
-                {
-                    skills.add(skill);
-                }
-            }
-        }
-
-        parent = SkillAPI.getClass(config.getString(PARENT));
+        parent = config.getString(PARENT);
         icon = Data.parseIcon(config);
         name = config.getString(NAME, name);
         prefix = TextFormatter.colorString(config.getString(PREFIX, prefix));
@@ -595,13 +582,41 @@ public abstract class RPGClass
         maxLevel = config.getInt(MAX, maxLevel);
         expSources = config.getInt(EXP, expSources);
         manaRegen = config.getDouble(REGEN, manaRegen);
-        needsPermission = config.getBoolean(PERM);
+        needsPermission = config.getString(PERM, needsPermission + "").equalsIgnoreCase("true");
         tree = DefaultTreeType.getByName(config.getString(TREE, "requirement"));
         manaPlayer = Bukkit.getServer().getOfflinePlayer(TextFormatter.colorString(mana));
 
-        settings.load(config.getConfigurationSection(ATTR));
+        settings.load(config.getSection(ATTR));
 
-        this.skillTree = this.tree.getTree((SkillAPI) Bukkit.getPluginManager().getPlugin("SkillAPI"), this);
+        if (config.isList(SKILLS))
+        {
+            skills.clear();
+            for (String name : config.getList(SKILLS))
+            {
+                Skill skill = SkillAPI.getSkill(name);
+                if (skill != null)
+                {
+                    skills.add(skill);
+                }
+                else Bukkit.getLogger().warning("Invalid skill for class " + this.name + " - " + name);
+            }
+        }
+
+        if (SkillAPI.getSettings().isMapTreeEnabled())
+        {
+            this.skillTree = new MapTree((SkillAPI) Bukkit.getPluginManager().getPlugin("SkillAPI"), this);
+        }
+        else
+        {
+            this.skillTree = this.tree.getTree((SkillAPI) Bukkit.getPluginManager().getPlugin("SkillAPI"), this);
+        }
+    }
+
+    /**
+     * Arranges the skill tree for the class
+     */
+    public void arrange()
+    {
         try
         {
             Bukkit.getLogger().info("Arranging for \"" + name + "\" - " + skills.size() + " skills");

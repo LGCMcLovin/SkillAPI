@@ -1,5 +1,6 @@
 package com.sucy.skill.dynamic.mechanic;
 
+import com.sucy.skill.SkillAPI;
 import com.sucy.skill.api.player.PlayerSkill;
 import com.sucy.skill.dynamic.EffectComponent;
 import org.bukkit.Bukkit;
@@ -14,7 +15,7 @@ import java.util.List;
  */
 public class PassiveMechanic extends EffectComponent
 {
-    private static final String PERIOD = "period";
+    private static final String PERIOD = "seconds";
 
     /**
      * Executes the component
@@ -30,7 +31,8 @@ public class PassiveMechanic extends EffectComponent
     {
         if (targets.size() > 0)
         {
-            int period = (int) (settings.getDouble(PERIOD, 1.0) * 20);
+            boolean isSelf = targets.size() == 1 && targets.get(0) == caster;
+            int period = (int) (attr(caster, PERIOD, level, 1.0, isSelf) * 20);
             new RepeatTask(caster, level, targets, period);
             return true;
         }
@@ -49,15 +51,21 @@ public class PassiveMechanic extends EffectComponent
             this.caster = caster;
             this.level = level;
 
-            runTaskTimer(Bukkit.getPluginManager().getPlugin("SkillAPI"), 0, period);
+            SkillAPI.schedule(this, 0, period);
         }
 
         @Override
         public void run()
         {
-            if (!caster.isValid() || caster.isDead())
+            for (int i = 0; i < targets.size(); i++) {
+                if (targets.get(i).isDead() || !targets.get(i).isValid()) {
+                    targets.remove(i);
+                }
+            }
+            if (!skill.isActive(caster) || targets.size() == 0)
             {
                 cancel();
+                return;
             }
             else if (caster instanceof Player)
             {
@@ -68,6 +76,7 @@ public class PassiveMechanic extends EffectComponent
                     return;
                 }
             }
+            level = skill.getActiveLevel(caster);
             executeChildren(caster, level, targets);
         }
     }

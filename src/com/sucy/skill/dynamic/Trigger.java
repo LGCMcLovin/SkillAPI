@@ -20,6 +20,11 @@ public enum Trigger
     CROUCH,
 
     /**
+     * Trigger effects when the player takes environmental damage
+     */
+    ENVIRONMENT_DAMAGE,
+
+    /**
      * Trigger effects when the player inflicts non-skill damage
      */
     PHYSICAL_DAMAGE,
@@ -43,6 +48,16 @@ public enum Trigger
      * Trigger effects when the skill is available
      */
     INITIALIZE,
+
+    /**
+     * Trigger effects upon killing something
+     */
+    KILL,
+
+    /**
+     * Trigger effects upon hitting the ground
+     */
+    LAND,
 
     /**
      * Trigger effects when taking non-skill damage

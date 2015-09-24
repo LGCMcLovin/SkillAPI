@@ -24,7 +24,7 @@
 
 package com.sucy.skill;
 
-import com.rit.sucy.config.LanguageConfig;
+import com.rit.sucy.config.CommentedLanguageConfig;
 import com.rit.sucy.version.VersionPlayer;
 import com.sucy.skill.api.classes.RPGClass;
 import com.sucy.skill.api.player.PlayerAccounts;
@@ -32,26 +32,27 @@ import com.sucy.skill.api.player.PlayerClass;
 import com.sucy.skill.api.player.PlayerData;
 import com.sucy.skill.api.player.PlayerSkill;
 import com.sucy.skill.api.skills.Skill;
-import com.sucy.skill.manager.ComboManager;
 import com.sucy.skill.data.PlayerStats;
 import com.sucy.skill.data.Settings;
 import com.sucy.skill.data.io.ConfigIO;
 import com.sucy.skill.data.io.IOManager;
+import com.sucy.skill.data.io.SQLIO;
 import com.sucy.skill.dynamic.DynamicClass;
 import com.sucy.skill.dynamic.mechanic.WolfMechanic;
+import com.sucy.skill.gui.Menu;
 import com.sucy.skill.hook.PluginChecker;
+import com.sucy.skill.hook.beton.BetonUtil;
 import com.sucy.skill.listener.*;
-import com.sucy.skill.manager.ClassBoardManager;
-import com.sucy.skill.manager.CmdManager;
-import com.sucy.skill.manager.RegistrationManager;
-import com.sucy.skill.manager.ResourceManager;
-import com.sucy.skill.task.CooldownTask;
-import com.sucy.skill.task.ManaTask;
+import com.sucy.skill.manager.*;
+import com.sucy.skill.task.*;
+import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.event.HandlerList;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -70,18 +71,23 @@ public class SkillAPI extends JavaPlugin
     public final HashMap<String, PlayerAccounts> players = new HashMap<String, PlayerAccounts>();
     public final ArrayList<String>               groups  = new ArrayList<String>();
 
-    private LanguageConfig language;
-    private Settings       settings;
+    private CommentedLanguageConfig language;
+    private Settings                settings;
 
     private IOManager           io;
     private CmdManager          cmd;
     private ComboManager        comboManager;
     private RegistrationManager registrationManager;
+    private AttributeManager    attributeManager;
 
-    private ManaTask     manaTask;
-    private CooldownTask cdTask;
+    private ManaTask      manaTask;
+    private CooldownTask  cdTask;
+    private InventoryTask invTask;
+    private SaveTask      saveTask;
+    private GUITask       guiTask;
 
     private boolean enabled = false;
+    private boolean loaded  = false;
 
     /**
      * <p>Enables SkillAPI, setting up listeners, managers, and loading data. This
@@ -105,7 +111,7 @@ public class SkillAPI extends JavaPlugin
         enabled = true;
 
         // Load settings
-        language = new LanguageConfig(this, "language");
+        language = new CommentedLanguageConfig(this, "language");
         settings = new Settings(this);
 
         // Hook plugins
@@ -115,40 +121,86 @@ public class SkillAPI extends JavaPlugin
         comboManager = new ComboManager();
         registrationManager = new RegistrationManager(this);
         cmd = new CmdManager(this);
-        io = new ConfigIO(this);
+        io = settings.isUseSql() ? new SQLIO(this) : new ConfigIO(this);
         PlayerStats.init();
         ClassBoardManager.registerText();
         ResourceManager.copyQuestsModule();
-
-        // Set up listeners
-        new MainListener(this);
-        new StatusListener(this);
-        new CastListener(this);
-        new TreeListener(this);
-        if (settings.isSkillBarEnabled())
+        if (settings.isAttributesEnabled())
         {
-            new BarListener(this);
+            attributeManager = new AttributeManager(this);
+        }
+
+        // Beton Quest hook
+        if (PluginChecker.isBetonActive())
+        {
+            BetonUtil.register();
         }
 
         // Load classes and skills
         registrationManager.initialize();
+
+        // Load group settings after groups are determined
+        settings.loadGroupSettings();
 
         // Load player data
         for (Player player : getServer().getOnlinePlayers())
         {
             PlayerData data = loadPlayerData(player).getActiveData();
             data.updateHealthAndMana(player);
+            data.updateScoreboard();
+        }
+        if (settings.isUseSql()) ((SQLIO) io).cleanup();
+
+        // Set up listeners
+        new CastListener(this);
+        new MainListener(this);
+        new MechanicListener(this);
+        new StatusListener(this);
+        if (settings.isMapTreeEnabled())
+        {
+            Menu.initialize(this);
+        }
+        else
+        {
+            new TreeListener(this);
+        }
+        if (settings.isCheckLore())
+        {
+            new ItemListener(this);
+        }
+        if (settings.isSkillBarEnabled())
+        {
+            new BarListener(this);
+        }
+        if (settings.isCombosEnabled())
+        {
+            new ClickListener(this);
+        }
+        if (settings.isAttributesEnabled())
+        {
+            new AttributeListener(this);
         }
 
         // Set up tasks
         if (settings.isManaEnabled())
         {
-            new ManaTask(this);
+            manaTask = new ManaTask(this);
         }
         if (settings.isSkillBarCooldowns())
         {
-            new CooldownTask(this);
+            cdTask = new CooldownTask(this);
         }
+        if (settings.isCheckLore())
+        {
+            invTask = new InventoryTask(this, settings.getPlayersPerCheck());
+        }
+        if (settings.isAutoSave())
+        {
+            saveTask = new SaveTask(this);
+        }
+        guiTask = new GUITask(this);
+
+        loaded = true;
     }
 
     /**
@@ -158,18 +210,48 @@ public class SkillAPI extends JavaPlugin
     @Override
     public void onDisable()
     {
+        // Validate instance
         if (singleton != this)
         {
             throw new IllegalStateException("This is not a valid, enabled SkillAPI copy!");
         }
 
+        // Clear tasks
         WolfMechanic.removeWolves();
-        manaTask.cancel();
-        cdTask.cancel();
+        if (manaTask != null)
+        {
+            manaTask.cancel();
+            manaTask = null;
+        }
+        if (cdTask != null)
+        {
+            cdTask.cancel();
+            cdTask = null;
+        }
+        if (invTask != null)
+        {
+            invTask.cancel();
+            invTask = null;
+        }
+        if (saveTask != null)
+        {
+            saveTask.cancel();
+            saveTask = null;
+        }
+        if (guiTask.isRunning())
+        {
+            guiTask.cancel();
+            guiTask = null;
+        }
 
-        // Clear skill bars before disabling
+        // Clear scoreboards
+        ClassBoardManager.clearAll();
+
+        // Clear skill bars and stop passives before disabling
         for (Player player : getServer().getOnlinePlayers())
         {
+            player.setMaxHealth(20);
+            getPlayerData(player).stopPassives(player);
             if (player.getGameMode() != GameMode.CREATIVE && !player.isDead())
             {
                 getPlayerData(player).getSkillBar().clear(player);
@@ -186,7 +268,19 @@ public class SkillAPI extends JavaPlugin
         cmd.clear();
 
         enabled = false;
+        loaded = false;
         singleton = null;
+    }
+
+    /**
+     * Checks whether or not SkillAPI has all its
+     * data loaded and running.
+     *
+     * @return true if loaded and set up, false otherwise
+     */
+    public static boolean isLoaded()
+    {
+        return singleton != null && singleton.loaded;
     }
 
     /**
@@ -208,7 +302,7 @@ public class SkillAPI extends JavaPlugin
      *
      * @return SkillAPI language file data
      */
-    public static LanguageConfig getLanguage()
+    public static CommentedLanguageConfig getLanguage()
     {
         if (singleton == null)
         {
@@ -229,6 +323,20 @@ public class SkillAPI extends JavaPlugin
             return null;
         }
         return singleton.comboManager;
+    }
+
+    /**
+     * Retrieves the attribute manager for SkillAPI
+     *
+     * @return attribute manager
+     */
+    public static AttributeManager getAttributeManager()
+    {
+        if (singleton == null)
+        {
+            return null;
+        }
+        return singleton.attributeManager;
     }
 
     /**
@@ -336,12 +444,12 @@ public class SkillAPI extends JavaPlugin
      *
      * @return the list of base classes
      */
-    public static ArrayList<RPGClass> getBaseClasses()
+    public static ArrayList<RPGClass> getBaseClasses(String group)
     {
         ArrayList<RPGClass> list = new ArrayList<RPGClass>();
         for (RPGClass c : singleton.classes.values())
         {
-            if (!c.hasParent())
+            if (!c.hasParent() && c.getGroup().equals(group))
             {
                 list.add(c);
             }
@@ -416,9 +524,33 @@ public class SkillAPI extends JavaPlugin
         {
             return null;
         }
+
+        // Already loaded for some reason, no need to load again
+        String id = new VersionPlayer(player).getIdString();
+        if (singleton.players.containsKey(id)) return singleton.players.get(id);
+
+        // Load the data
         PlayerAccounts data = singleton.io.loadData(player);
-        singleton.players.put(new VersionPlayer(player).getIdString(), data);
+        for (PlayerData account : data.getAllData().values())
+        {
+            account.endInit();
+        }
+        singleton.players.put(id, data);
         return data;
+    }
+
+    /**
+     * Saves all player data to the configs. This
+     * should be called asynchronously to avoid problems
+     * with the main server loop.
+     */
+    public static void saveData()
+    {
+        if (singleton == null)
+        {
+            return;
+        }
+        singleton.io.saveAll();
     }
 
     /**
@@ -428,6 +560,7 @@ public class SkillAPI extends JavaPlugin
      * currently loaded.
      *
      * @param player player to check for
+     *
      * @return true if has loaded data, false otherwise
      */
     public static boolean hasPlayerData(OfflinePlayer player)
@@ -441,15 +574,23 @@ public class SkillAPI extends JavaPlugin
      *
      * @param player player to unload data for
      */
-    public static void unloadPlayerData(Player player)
+    public static void unloadPlayerData(final OfflinePlayer player)
     {
-        if (singleton == null || player == null)
+        if (singleton == null || player == null || !singleton.players.containsKey(new VersionPlayer(player).getIdString()))
         {
             return;
         }
-        PlayerAccounts accounts = getPlayerAccountData(player);
-        singleton.io.saveData(accounts);
-        singleton.players.remove(new VersionPlayer(player).getIdString());
+
+        singleton.getServer().getScheduler().runTaskAsynchronously(singleton, new Runnable()
+        {
+            @Override
+            public void run()
+            {
+                PlayerAccounts accounts = getPlayerAccountData(player);
+                singleton.io.saveData(accounts);
+                singleton.players.remove(new VersionPlayer(player).getIdString());
+            }
+        });
     }
 
     /**
@@ -594,6 +735,31 @@ public class SkillAPI extends JavaPlugin
         for (RPGClass rpgClass : classes)
         {
             addClass(rpgClass);
+        }
+    }
+
+    /**
+     * Schedules a delayed task
+     *
+     * @param runnable the task to schedule
+     * @param delay    the delay in ticks
+     */
+    public static void schedule(BukkitRunnable runnable, int delay) {
+        if (singleton != null) {
+            runnable.runTaskLater(singleton, delay);
+        }
+    }
+
+    /**
+     * Schedules a repeating task
+     *
+     * @param runnable the task to schedule
+     * @param delay    the delay in ticks before the first tick
+     * @param period   how often to run in ticks
+     */
+    public static void schedule(BukkitRunnable runnable, int delay, int period) {
+        if (singleton != null) {
+            runnable.runTaskTimer(singleton, delay, period);
         }
     }
 }

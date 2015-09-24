@@ -27,15 +27,15 @@ public class SkillLevelCondition extends EffectComponent
     @Override
     public boolean execute(LivingEntity caster, int level, List<LivingEntity> targets)
     {
-        int min = settings.getInt(MIN_LEVEL);
-        int max = settings.getInt(MAX_LEVEL);
+        int min = settings.getInt(MIN_LEVEL, 1);
+        int max = settings.getInt(MAX_LEVEL, 99);
 
         String skill = settings.getString(SKILL, "");
         PlayerSkill data = getSkillData(caster).getPlayerData().getSkill(skill);
         if (data == null) data = getSkillData(caster);
 
         return data.getLevel() >= min
-                && data.getLevel() <= max
-                && executeChildren(caster, level, targets);
+               && data.getLevel() <= max
+               && executeChildren(caster, level, targets);
     }
 }

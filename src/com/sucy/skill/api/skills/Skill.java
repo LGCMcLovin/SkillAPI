@@ -2,22 +2,23 @@ package com.sucy.skill.api.skills;
 
 import com.rit.sucy.config.Filter;
 import com.rit.sucy.config.FilterType;
-import com.rit.sucy.config.LanguageConfig;
+import com.rit.sucy.config.parse.DataSection;
 import com.rit.sucy.text.TextFormatter;
 import com.rit.sucy.version.VersionManager;
 import com.sucy.skill.SkillAPI;
 import com.sucy.skill.api.Settings;
 import com.sucy.skill.api.event.SkillDamageEvent;
 import com.sucy.skill.api.player.PlayerSkill;
+import com.sucy.skill.api.util.DamageLoreRemover;
 import com.sucy.skill.api.util.Data;
-import com.sucy.skill.language.DefaultsNodes;
+import com.sucy.skill.dynamic.TempEntity;
+import com.sucy.skill.language.NotificationNodes;
 import com.sucy.skill.language.RPGFilter;
 import com.sucy.skill.language.SkillNodes;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
-import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
@@ -43,7 +44,6 @@ public abstract class Skill
     private String       name;
     private String       type;
     private String       message;
-    private String       attrInfo;
     private String       skillReq;
     private int          maxLevel;
     private int          skillReqLevel;
@@ -133,18 +133,28 @@ public abstract class Skill
             maxLevel = 1;
         }
 
-        this.key = name;
+        this.key = name.toLowerCase();
         this.type = type;
         this.name = name;
         this.indicator = indicator;
         this.maxLevel = maxLevel;
         this.skillReq = skillReq;
         this.skillReqLevel = skillReqLevel;
-        this.attrInfo = "";
         this.needsPermission = false;
 
-        this.message = SkillAPI.getLanguage().getMessage(DefaultsNodes.CAST, true, FilterType.COLOR).get(0);
+        this.message = SkillAPI.getLanguage().getMessage(NotificationNodes.CAST, true, FilterType.COLOR).get(0);
         this.iconLore = SkillAPI.getLanguage().getMessage(SkillNodes.LAYOUT, true, FilterType.COLOR);
+    }
+
+    /**
+     * Checks whether or not the skill can automatically
+     * level up to the next stage.
+     *
+     * @return true if can level up automatically, false otherwise
+     */
+    public boolean canAutoLevel()
+    {
+        return getCost(0) == 0 && getCost(1) == 0;
     }
 
     /**
@@ -228,6 +238,16 @@ public abstract class Skill
     }
 
     /**
+     * Checks whether or not the skill requires another before leveling up
+     *
+     * @return true if requires another skill, false otherwise
+     */
+    public boolean hasSkillReq()
+    {
+        return SkillAPI.getSkill(skillReq) != null && skillReqLevel > 0;
+    }
+
+    /**
      * Retrieves the skill required to be upgraded before this one
      *
      * @return required skill
@@ -262,6 +282,7 @@ public abstract class Skill
      * Retrieves the level requirement for the skill to reach the next level
      *
      * @param level current level of the skill
+     *
      * @return level requirement for the next level
      */
     public int getLevelReq(int level)
@@ -273,6 +294,7 @@ public abstract class Skill
      * Retrieves the mana cost of the skill
      *
      * @param level current level of the skill
+     *
      * @return mana cost
      */
     public double getManaCost(int level)
@@ -284,6 +306,7 @@ public abstract class Skill
      * Retrieves the cooldown of the skill in seconds
      *
      * @param level current level of the skill
+     *
      * @return cooldown
      */
     public double getCooldown(int level)
@@ -295,6 +318,7 @@ public abstract class Skill
      * Retrieves the range of the skill in blocks
      *
      * @param level current level of the skill
+     *
      * @return target range
      */
     public double getRange(int level)
@@ -306,6 +330,7 @@ public abstract class Skill
      * Retrieves the skill point cost of the skill
      *
      * @param level current level of the skill
+     *
      * @return skill point cost
      */
     public int getCost(int level)
@@ -328,25 +353,20 @@ public abstract class Skill
      * the player-specific data.
      *
      * @param skillData player data
+     *
      * @return filtered skill indicator
      */
     public ItemStack getIndicator(PlayerSkill skillData)
     {
-
-        LanguageConfig lang = SkillAPI.getLanguage();
-        List<String> layout = lang.getMessage(SkillNodes.LAYOUT);
-        boolean first = true;
-
         ItemStack item = indicator.clone();
         item.setAmount(Math.max(1, skillData.getLevel()));
         ItemMeta meta = item.hasItemMeta() ? item.getItemMeta() : Bukkit.getItemFactory().getItemMeta(item.getType());
         ArrayList<String> lore = new ArrayList<String>();
 
-        String lvlReq = SkillAPI.getLanguage().getMessage(getLevelReq(skillData.getLevel()) <= skillData.getPlayerClass().getLevel() ? SkillNodes.REQUIREMENT_MET : SkillNodes.REQUIREMENT_NOT_MET, true, FilterType.COLOR).get(0);
-        lvlReq = lvlReq.replace("{value}", "" + getLevelReq(skillData.getLevel()));
-
-        String costReq = SkillAPI.getLanguage().getMessage(getCost(skillData.getLevel()) <= skillData.getPlayerClass().getPoints() ? SkillNodes.REQUIREMENT_MET : SkillNodes.REQUIREMENT_NOT_MET, true, FilterType.COLOR).get(0);
-        costReq = costReq.replace("{value}", "" + getCost(skillData.getLevel()));
+        String lvlReq = SkillAPI.getLanguage().getMessage(skillData.getLevelReq() <= skillData.getPlayerClass().getLevel() ? SkillNodes.REQUIREMENT_MET : SkillNodes.REQUIREMENT_NOT_MET, true, FilterType.COLOR).get(0);
+        String costReq = SkillAPI.getLanguage().getMessage(skillData.getCost() <= skillData.getPlayerClass().getPoints() ? SkillNodes.REQUIREMENT_MET : SkillNodes.REQUIREMENT_NOT_MET, true, FilterType.COLOR).get(0);
+        lvlReq = lvlReq.substring(0, lvlReq.length() - 2);
+        costReq = costReq.substring(0, costReq.length() - 2);
 
         String attrChanging = SkillAPI.getLanguage().getMessage(SkillNodes.ATTRIBUTE_CHANGING, true, FilterType.COLOR).get(0);
         String attrStatic = SkillAPI.getLanguage().getMessage(SkillNodes.ATTRIBUTE_NOT_CHANGING, true, FilterType.COLOR).get(0);
@@ -358,6 +378,7 @@ public abstract class Skill
                 // General data
                 line = line.replace("{level}", "" + skillData.getLevel())
                         .replace("{req:lvl}", lvlReq)
+                        .replace("{req:level}", lvlReq)
                         .replace("{req:cost}", costReq)
                         .replace("{max}", "" + maxLevel)
                         .replace("{name}", name)
@@ -369,10 +390,11 @@ public abstract class Skill
                     int start = line.indexOf("{attr:");
                     int end = line.indexOf("}", start);
                     String attr = line.substring(start + 6, end);
-                    Object currValue = getAttr(attr, Math.min(1, skillData.getLevel()));
-                    Object nextValue = getAttr(attr, Math.max(skillData.getLevel() + 1, maxLevel));
+                    Object currValue = getAttr(attr, Math.max(1, skillData.getLevel()));
+                    Object nextValue = getAttr(attr, Math.min(skillData.getLevel() + 1, maxLevel));
                     if (attr.equals("level") || attr.equals("cost"))
                     {
+                        nextValue = (int)Math.floor(Float.parseFloat(nextValue.toString()));
                         currValue = nextValue;
                     }
 
@@ -382,7 +404,7 @@ public abstract class Skill
                     }
                     else
                     {
-                        line = line.replace("{attr:" + attr + "}", attrChanging.replace("{name}", getAttrName(attr)).replace("{value}", currValue.toString()).replace("{value}", nextValue.toString()));
+                        line = line.replace("{attr:" + attr + "}", attrChanging.replace("{name}", getAttrName(attr)).replace("{value}", currValue.toString()).replace("{new}", nextValue.toString()));
                     }
                 }
 
@@ -423,13 +445,11 @@ public abstract class Skill
         }
 
         // Click string at the bottom
-        /*
-        if (SkillAPI.getSettings().isUseClickCombos() && canCast())
+        if (SkillAPI.getSettings().isCombosEnabled() && canCast())
         {
             lore.add("");
-            lore.add(ChatColor.GOLD + SkillAPI.getComboManager().getComboString(name));
+            lore.add(ChatColor.GOLD + skillData.getPlayerData().getComboData().getComboString(this));
         }
-        */
 
         if (lore.size() > 0)
         {
@@ -438,13 +458,14 @@ public abstract class Skill
 
         meta.setLore(lore);
         item.setItemMeta(meta);
-        return item;
+        return DamageLoreRemover.removeAttackDmg(item);
     }
 
     /**
      * Formats an attribute name for applying to the indicator
      *
      * @param key attribute key
+     *
      * @return formatted attribute name
      */
     protected String getAttrName(String key)
@@ -457,17 +478,24 @@ public abstract class Skill
      *
      * @param key   attribute key
      * @param level skill level
+     *
      * @return attribute value
      */
     protected Object getAttr(String key, int level)
     {
-        return settings.getObj(key, level);
+        Object result = settings.getObj(key, level);
+        if (result instanceof Double)
+        {
+            return FORMAT.format((double) (Double) result);
+        }
+        return result;
     }
 
     /**
      * Formats a double value to prevent excessive decimals
      *
      * @param value double value to format
+     *
      * @return formatted double value
      */
     private String format(double value)
@@ -512,12 +540,15 @@ public abstract class Skill
      */
     public void damage(LivingEntity target, double damage, LivingEntity source)
     {
+        if (target instanceof TempEntity) return;
+
         SkillDamageEvent event = new SkillDamageEvent(source, target, damage);
         Bukkit.getPluginManager().callEvent(event);
         if (!event.isCancelled())
         {
             skillDamage = true;
             VersionManager.damage(target, source, event.getDamage());
+            skillDamage = false;
         }
     }
 
@@ -532,20 +563,17 @@ public abstract class Skill
      */
     public static boolean isSkillDamage()
     {
-        boolean result = skillDamage;
-        skillDamage = false;
-        return result;
+        return skillDamage;
     }
 
     private static final String NAME      = "name";
     private static final String TYPE      = "type";
-    private static final String ITEM      = "item";
-    private static final String LAYOUT    = "layout";
-    private static final String MAX       = "max";
-    private static final String REQ       = "req";
-    private static final String REQLVL    = "req-lvl";
+    private static final String LAYOUT    = "icon-lore";
+    private static final String MAX       = "max-level";
+    private static final String REQ       = "skill-req";
+    private static final String REQLVL    = "skill-req-lvl";
     private static final String MSG       = "msg";
-    private static final String PERM      = "reqperm";
+    private static final String PERM      = "needs-permission";
     private static final String DESC      = "desc";
     private static final String ATTR      = "attributes";
     private static final String ATTR_INFO = "attribute-info";
@@ -555,22 +583,21 @@ public abstract class Skill
      *
      * @param config config to save to
      */
-    public void save(ConfigurationSection config)
+    public void save(DataSection config)
     {
         config.set(NAME, name);
         config.set(TYPE, type.replace(ChatColor.COLOR_CHAR, '&'));
-        Data.serializeIcon(indicator, config);
         config.set(MAX, maxLevel);
         config.set(REQ, skillReq);
         config.set(REQLVL, skillReqLevel);
-        if (message != null)
+        config.set(PERM, needsPermission);
+        settings.save(config.createSection(ATTR));
+        if (hasMessage())
         {
             config.set(MSG, message.replace(ChatColor.COLOR_CHAR, '&'));
         }
-        config.set(PERM, needsPermission);
+        Data.serializeIcon(indicator, config);
         config.set(DESC, description);
-        config.set(LAYOUT, iconLore);
-        settings.save(config.createSection(ATTR));
     }
 
     /**
@@ -579,47 +606,13 @@ public abstract class Skill
      *
      * @param config config to save to
      */
-    public void softSave(ConfigurationSection config)
+    public void softSave(DataSection config)
     {
 
-        boolean neededOnly = config.getKeys(false).size() > 0;
-
-        if (!config.contains(NAME))
-        {
-            config.set(NAME, name);
-        }
-        if (!config.isSet(TYPE))
-        {
-            config.set(TYPE, type.replace(ChatColor.COLOR_CHAR, '&'));
-        }
-        if (!config.isSet(MAX))
-        {
-            config.set(MAX, maxLevel);
-        }
-        if (!config.isSet(LAYOUT))
-        {
-            config.set(LAYOUT, iconLore);
-        }
-        if (skillReq != null && !neededOnly)
-        {
-            config.set(REQ, skillReq);
-            config.set(REQLVL, skillReqLevel);
-        }
-        if (message != null && !neededOnly)
-        {
-            config.set(MSG, message.replace(ChatColor.COLOR_CHAR, '&'));
-        }
+        boolean neededOnly = config.keys().size() > 0;
         if (!neededOnly)
         {
-            config.set(PERM, needsPermission);
-        }
-        if (!config.isSet(DESC))
-        {
-            config.set(DESC, description);
-        }
-        if (!config.isSet(ATTR_INFO))
-        {
-            config.set(ATTR_INFO, attrInfo);
+            save(config);
         }
     }
 
@@ -628,28 +621,28 @@ public abstract class Skill
      *
      * @param config config to load from
      */
-    public void load(ConfigurationSection config)
+    public void load(DataSection config)
     {
         name = config.getString(NAME, name);
         type = TextFormatter.colorString(config.getString(TYPE, name));
         indicator = Data.parseIcon(config);
         maxLevel = config.getInt(MAX, maxLevel);
         skillReq = config.getString(REQ);
+        if (skillReq == null || skillReq.length() == 0) skillReq = null;
         skillReqLevel = config.getInt(REQLVL, skillReqLevel);
         message = TextFormatter.colorString(config.getString(MSG, message));
-        needsPermission = config.getBoolean(PERM, needsPermission);
-        attrInfo = config.getString(ATTR_INFO, attrInfo);
+        needsPermission = config.getString(PERM, needsPermission + "").equalsIgnoreCase("true");
 
         if (config.isList(DESC))
         {
             description.clear();
-            description.addAll(config.getStringList(DESC));
+            description.addAll(config.getList(DESC));
         }
         if (config.isList(LAYOUT))
         {
-            iconLore = TextFormatter.colorStringList(config.getStringList(LAYOUT));
+            iconLore = TextFormatter.colorStringList(config.getList(LAYOUT));
         }
 
-        settings.load(config.getConfigurationSection(ATTR));
+        settings.load(config.getSection(ATTR));
     }
 }

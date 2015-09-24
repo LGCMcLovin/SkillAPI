@@ -37,17 +37,18 @@ public class WolfMechanic extends EffectComponent
      * @return true if applied to something, false otherwise
      */
     @Override
-    public boolean execute(final LivingEntity caster, final int level, final List<LivingEntity> targets)
+    public boolean execute(LivingEntity caster, int level, List<LivingEntity> targets)
     {
         if (!(caster instanceof Player))
         {
             return false;
         }
 
+        boolean isSelf = targets.size() == 1 && targets.get(0) == caster;
         String color = settings.getString(COLOR);
-        double health = settings.getAttr(HEALTH, level, 10.0);
+        double health = attr(caster, HEALTH, level, 10.0, isSelf);
         String name = TextFormatter.colorString(settings.getString(NAME, "").replace("{player}", ((Player) caster).getName()));
-        double damage = settings.getAttr(DAMAGE, level, 3.0);
+        double damage = attr(caster, DAMAGE, level, 3.0, isSelf);
 
         DyeColor dye = null;
         if (color != null)
@@ -60,7 +61,7 @@ public class WolfMechanic extends EffectComponent
             { /* Invalid color */ }
         }
 
-        double seconds = settings.getAttr(SECONDS, level, 10.0);
+        double seconds = attr(caster, SECONDS, level, 10.0, isSelf);
         int ticks = (int) (seconds * 20);
         ArrayList<LivingEntity> wolves = new ArrayList<LivingEntity>();
         for (LivingEntity target : targets)

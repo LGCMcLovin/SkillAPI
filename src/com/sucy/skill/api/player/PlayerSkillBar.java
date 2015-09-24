@@ -16,7 +16,6 @@ import java.util.Map;
  */
 public class PlayerSkillBar
 {
-
     private static final String
             UNASSIGNED = "e";
 
@@ -169,7 +168,7 @@ public class PlayerSkillBar
      */
     public void toggleSlot(int slot)
     {
-        if (!isEnabled())
+        if (!isEnabled() || SkillAPI.getSettings().getLockedSlots()[slot])
         {
             return;
         }
@@ -235,7 +234,7 @@ public class PlayerSkillBar
      */
     public void clear(HumanEntity player)
     {
-        if (!isEnabled())
+        if (player == null || !setup)
         {
             return;
         }
@@ -257,7 +256,7 @@ public class PlayerSkillBar
      */
     public void clear(PlayerDeathEvent event)
     {
-        if (!enabled || event.getEntity().getGameMode() == GameMode.CREATIVE)
+        if (event == null || !setup)
         {
             return;
         }
@@ -286,6 +285,7 @@ public class PlayerSkillBar
             }
             slots.put(i + 1, UNASSIGNED);
         }
+        update(getPlayer());
     }
 
     /**
@@ -295,7 +295,7 @@ public class PlayerSkillBar
      */
     public void setup(HumanEntity player)
     {
-        if (!enabled || player.getGameMode() == GameMode.CREATIVE)
+        if (player == null || !enabled || player.getGameMode() == GameMode.CREATIVE || setup)
         {
             return;
         }
@@ -310,7 +310,12 @@ public class PlayerSkillBar
         // Set it to a weapon slot
         if (!isWeaponSlot(player.getInventory().getHeldItemSlot()))
         {
-            player.getInventory().setHeldItemSlot(getFirstWeaponSlot());
+            int slot = getFirstWeaponSlot();
+            if (slot == -1) {
+                toggleSlot(0);
+                slot = 0;
+            }
+            player.getInventory().setHeldItemSlot(slot);
         }
 
         // Add in the skill indicators
@@ -426,7 +431,7 @@ public class PlayerSkillBar
                 if (skill != null && skill.isUnlocked())
                 {
                     ItemStack item = player.getInventory().getItem(i);
-                    int amount = Math.min(Math.max(skill.getCooldown(), 1), 64);
+                    int amount = Math.max(1, skill.getCooldown());
                     if (item.getAmount() != amount)
                     {
                         item.setAmount(amount);

@@ -26,16 +26,17 @@ public class DefenseBuffMechanic extends EffectComponent
      * @return true if applied to something, false otherwise
      */
     @Override
-    public boolean execute(final LivingEntity caster, final int level, final List<LivingEntity> targets)
+    public boolean execute(LivingEntity caster, int level, List<LivingEntity> targets)
     {
         if (targets.size() == 0)
         {
             return false;
         }
 
-        boolean percent = settings.getString(TYPE, "flat").toLowerCase().equals("percent");
-        double value = settings.getAttr(VALUE, level, 1.0);
-        double seconds = settings.getAttr(SECONDS, level, 3.0);
+        boolean isSelf = targets.size() == 1 && targets.get(0) == caster;
+        boolean percent = settings.getString(TYPE, "flat").toLowerCase().equals("multiplier");
+        double value = attr(caster, VALUE, level, 1.0, isSelf);
+        double seconds = attr(caster, SECONDS, level, 3.0, isSelf);
         int ticks = (int) (seconds * 20);
         for (LivingEntity target : targets)
         {

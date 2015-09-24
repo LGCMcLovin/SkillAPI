@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * A condition for dynamic skills that requires the target to have a specified potion effect
+ * A condition for dynamic skills that requires the target to have a specified held item
  */
 public class ItemCondition extends EffectComponent
 {
@@ -26,7 +26,7 @@ public class ItemCondition extends EffectComponent
     public boolean execute(LivingEntity caster, int level, List<LivingEntity> targets)
     {
         ArrayList<LivingEntity> list = new ArrayList<LivingEntity>();
-        String item = settings.getString(MATERIAL, "");
+        String item = settings.getString(MATERIAL, "").toUpperCase().replace(" ", "_");
 
         for (LivingEntity target : targets)
         {

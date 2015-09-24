@@ -4,12 +4,12 @@ import com.sucy.skill.api.projectile.CustomProjectile;
 import com.sucy.skill.api.projectile.ItemProjectile;
 import com.sucy.skill.api.projectile.ProjectileCallback;
 import com.sucy.skill.dynamic.EffectComponent;
+import com.sucy.skill.dynamic.TempEntity;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.Material;
-import org.bukkit.entity.Bat;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.material.MaterialData;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.util.Vector;
 
@@ -30,6 +30,7 @@ public class ItemProjectileMechanic extends EffectComponent implements Projectil
     private static final String HEIGHT = "height";
     private static final String RADIUS = "radius";
     private static final String SPREAD = "spread";
+    private static final String ALLY   = "group";
 
     /**
      * Executes the component
@@ -46,30 +47,33 @@ public class ItemProjectileMechanic extends EffectComponent implements Projectil
         Material mat = Material.JACK_O_LANTERN;
         try
         {
-            mat = Material.valueOf(settings.getString(ITEM));
+            mat = Material.valueOf(settings.getString(ITEM).toUpperCase().replace(" ", "_"));
         }
         catch (Exception ex)
         {
             // Invalid or missing item material
         }
         ItemStack item = new ItemStack(mat);
-        item.setData(new MaterialData(mat, (byte) settings.getInt(DATA, 0)));
+        item.setDurability((short) settings.getInt(DATA, 0));
 
         // Get other common values
         double speed = settings.getAttr(SPEED, level, 3.0);
         int amount = (int) settings.getAttr(AMOUNT, level, 1.0);
         String spread = settings.getString(SPREAD, "cone").toLowerCase();
+        boolean ally = settings.getString(ALLY, "enemy").toLowerCase().equals("ally");
 
         // Fire from each target
         for (LivingEntity target : targets)
         {
+            Location loc = target.getLocation();
+
             // Apply the spread type
             ArrayList<ItemProjectile> list;
             if (spread.equals("rain"))
             {
                 double radius = settings.getAttr(RADIUS, level, 2.0);
                 double height = settings.getAttr(HEIGHT, level, 8.0);
-                list = ItemProjectile.rain(caster, target.getLocation(), item, radius, height, speed, amount, this);
+                list = ItemProjectile.rain(caster, loc, item, radius, height, speed, amount, this);
             }
             else
             {
@@ -79,14 +83,16 @@ public class ItemProjectileMechanic extends EffectComponent implements Projectil
                     dir.setY(0);
                     dir.normalize();
                 }
+                dir.multiply(speed);
                 double angle = settings.getAttr(ANGLE, level, 30.0);
-                list = ItemProjectile.spread(caster, dir, target.getLocation(), item, angle, amount, this);
+                list = ItemProjectile.spread(caster, dir, loc.add(0, 0.5, 0), item, angle, amount, this);
             }
 
             // Set metadata for when the callback happens
             for (ItemProjectile p : list)
             {
                 p.setMetadata(LEVEL, new FixedMetadataValue(Bukkit.getPluginManager().getPlugin("SkillAPI"), level));
+                p.setAllyEnemy(ally, !ally);
             }
         }
 
@@ -102,20 +108,12 @@ public class ItemProjectileMechanic extends EffectComponent implements Projectil
     @Override
     public void callback(CustomProjectile projectile, LivingEntity hit)
     {
-        boolean remove = false;
         if (hit == null)
         {
-            hit = projectile.getLocation().getWorld().spawn(projectile.getLocation(), Bat.class);
-            hit.setMaxHealth(10000);
-            hit.setHealth(hit.getMaxHealth());
-            remove = true;
+            hit = new TempEntity(projectile.getLocation());
         }
         ArrayList<LivingEntity> targets = new ArrayList<LivingEntity>();
         targets.add(hit);
         executeChildren(projectile.getShooter(), projectile.getMetadata(LEVEL).get(0).asInt(), targets);
-        if (remove)
-        {
-            hit.remove();
-        }
     }
 }

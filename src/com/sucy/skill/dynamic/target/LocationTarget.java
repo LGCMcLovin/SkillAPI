@@ -1,9 +1,9 @@
 package com.sucy.skill.dynamic.target;
 
 import com.sucy.skill.dynamic.EffectComponent;
+import com.sucy.skill.dynamic.TempEntity;
 import org.bukkit.Location;
 import org.bukkit.block.Block;
-import org.bukkit.entity.Bat;
 import org.bukkit.entity.LivingEntity;
 
 import java.util.ArrayList;
@@ -30,7 +30,8 @@ public class LocationTarget extends EffectComponent
     public boolean execute(LivingEntity caster, int level, List<LivingEntity> targets)
     {
         boolean worked = false;
-        double range = settings.getAttr(RANGE, level, 5.0);
+        boolean isSelf = targets.size() == 1 && targets.get(0) == caster;
+        double range = attr(caster, RANGE, level, 5.0, isSelf);
         boolean groundOnly = !settings.getString(GROUND, "true").toLowerCase().equals("false");
         for (LivingEntity t : targets)
         {
@@ -50,13 +51,8 @@ public class LocationTarget extends EffectComponent
             }
 
             ArrayList<LivingEntity> list = new ArrayList<LivingEntity>();
-            Bat bat = loc.getWorld().spawn(loc, Bat.class);
-            bat.setMaxHealth(9999);
-            bat.setHealth(bat.getMaxHealth());
-            bat.getLocation().setDirection(caster.getLocation().getDirection());
-            list.add(bat);
+            list.add(new TempEntity(loc));
             worked = executeChildren(caster, level, list) || worked;
-            bat.remove();
         }
         return worked;
     }

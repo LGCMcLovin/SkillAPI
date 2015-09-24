@@ -1,11 +1,15 @@
 package com.sucy.skill.api.player;
 
+import com.rit.sucy.version.VersionPlayer;
 import com.sucy.skill.SkillAPI;
+import com.sucy.skill.api.event.PlayerAccountChangeEvent;
+import com.sucy.skill.listener.AttributeListener;
+import com.sucy.skill.manager.ClassBoardManager;
+import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 
 import java.util.HashMap;
-import java.util.UUID;
 
 /**
  * Represents the collection of accounts owned by a single player.
@@ -32,7 +36,7 @@ public class PlayerAccounts
     {
         this.player = player;
 
-        PlayerData data = new PlayerData(player);
+        PlayerData data = new PlayerData(player, true);
         classData.put(1, data);
         active = 1;
     }
@@ -93,6 +97,7 @@ public class PlayerAccounts
      * unless the setting to initialize one account for each class is enabled.
      *
      * @param id account ID
+     *
      * @return true if data exists, false otherwise
      */
     public boolean hasData(int id)
@@ -104,6 +109,7 @@ public class PlayerAccounts
      * Gets the account data by ID for the owner
      *
      * @param id account ID
+     *
      * @return account data or null if not found
      */
     public PlayerData getData(int id)
@@ -119,13 +125,15 @@ public class PlayerAccounts
      *
      * @param id     account ID
      * @param player offline player reference
+     * @param init   whether or not the data is being initialized
+     *
      * @return account data or null if invalid id or player
      */
-    public PlayerData getData(int id, OfflinePlayer player)
+    public PlayerData getData(int id, OfflinePlayer player, boolean init)
     {
         if (!hasData(id) && id > 0 && player != null)
         {
-            classData.put(id, new PlayerData(player));
+            classData.put(id, new PlayerData(player, init));
         }
         return classData.get(id);
     }
@@ -153,22 +161,35 @@ public class PlayerAccounts
         Player player = getPlayer();
         if (player == null || id == active)
         {
+            active = id;
             return;
         }
         if (id <= getAccountLimit() && id > 0 && !classData.containsKey(id))
         {
-            classData.put(id, new PlayerData(player));
+            classData.put(id, new PlayerData(player, false));
         }
         if (classData.containsKey(id))
         {
+            PlayerAccountChangeEvent event = new PlayerAccountChangeEvent(this, active, id);
+            Bukkit.getPluginManager().callEvent(event);
+            if (event.isCancelled())
+            {
+                return;
+            }
+
+            ClassBoardManager.clear(new VersionPlayer(player));
             getActiveData().stopPassives(player);
+            getActiveData().clearBonuses();
+            AttributeListener.clearBonuses(player);
             if (getActiveData().hasClass())
             {
                 getActiveData().getSkillBar().clear(player);
             }
-            active = id;
+            active = event.getNewID();
             getActiveData().startPassives(player);
             getActiveData().updateScoreboard();
+            getActiveData().updateHealthAndMana(player);
+            AttributeListener.updatePlayer(getActiveData());
             if (getActiveData().hasClass())
             {
                 getActiveData().getSkillBar().setup(player);

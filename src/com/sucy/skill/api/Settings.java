@@ -1,8 +1,11 @@
 package com.sucy.skill.api;
 
-import org.bukkit.configuration.ConfigurationSection;
+import com.rit.sucy.config.parse.DataSection;
+import org.bukkit.Bukkit;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 
 /**
  * <p>Represents a set of settings that store configurable data for an object.</p>
@@ -94,7 +97,7 @@ public class Settings
      */
     public double getDouble(String key)
     {
-        return getAttr(key, 0);
+        return getDouble(key, 0);
     }
 
     /**
@@ -213,7 +216,7 @@ public class Settings
      */
     public String getString(String key, String defaultValue)
     {
-        if (settings.containsKey(key))
+        if (settings.containsKey(key) && settings.get(key) != null)
         {
             return settings.get(key).toString();
         }
@@ -221,6 +224,25 @@ public class Settings
         {
             set(key, defaultValue);
             return defaultValue;
+        }
+    }
+
+    /**
+     * Retrieves a string list from the settings
+     *
+     * @param key settings key
+     *
+     * @return string list or empty list if not found
+     */
+    public List<String> getStringList(String key)
+    {
+        if (settings.containsKey(key) && settings.get(key) instanceof List<?>)
+        {
+            return (List<String>) settings.get(key);
+        }
+        else
+        {
+            return new ArrayList<String>();
         }
     }
 
@@ -375,7 +397,7 @@ public class Settings
      *
      * @param config configuration section to save to
      */
-    public void save(ConfigurationSection config)
+    public void save(DataSection config)
     {
         if (config == null)
         {
@@ -398,16 +420,28 @@ public class Settings
      *
      * @param config configuration section to load from
      */
-    public void load(ConfigurationSection config)
+    public void load(DataSection config)
     {
         if (config == null)
         {
             return;
         }
 
-        for (String key : config.getKeys(false))
+        for (String key : config.keys())
         {
-            settings.put(key, config.getString(key));
+            settings.put(key, config.get(key));
+        }
+    }
+
+    /**
+     * Dumps the settings to the console for debugging purposes
+     */
+    public void dumpToConsole()
+    {
+        Bukkit.getLogger().info("Settings:");
+        for (String key : settings.keySet())
+        {
+            Bukkit.getLogger().info("- " + key + ": " + settings.get(key).toString());
         }
     }
 }

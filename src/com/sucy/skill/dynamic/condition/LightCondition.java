@@ -26,14 +26,15 @@ public class LightCondition extends EffectComponent
     @Override
     public boolean execute(LivingEntity caster, int level, List<LivingEntity> targets)
     {
-        double min = settings.getAttr(MIN, level);
-        double max = settings.getAttr(MAX, level);
+        boolean isSelf = targets.size() == 1 && targets.get(0) == caster;
+        double min = attr(caster, MIN, level, 0, isSelf);
+        double max = attr(caster, MAX, level, 0, isSelf);
 
         ArrayList<LivingEntity> list = new ArrayList<LivingEntity>();
         for (LivingEntity target : targets)
         {
             if (target.getLocation().getBlock().getLightLevel() >= min
-                    && target.getLocation().getBlock().getLightLevel() <= max)
+                && target.getLocation().getBlock().getLightLevel() <= max)
             {
                 list.add(target);
             }

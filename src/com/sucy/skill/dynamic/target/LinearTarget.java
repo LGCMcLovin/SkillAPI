@@ -1,7 +1,7 @@
 package com.sucy.skill.dynamic.target;
 
-import com.rit.sucy.player.Protection;
 import com.rit.sucy.player.TargetHelper;
+import com.sucy.skill.SkillAPI;
 import com.sucy.skill.dynamic.EffectComponent;
 import org.bukkit.Location;
 import org.bukkit.entity.LivingEntity;
@@ -35,15 +35,16 @@ public class LinearTarget extends EffectComponent
     public boolean execute(LivingEntity caster, int level, List<LivingEntity> targets)
     {
         boolean worked = false;
-        double tolerance = settings.getAttr(TOLERANCE, level, 4.0);
-        double range = settings.getAttr(RANGE, level, 5.0);
+        boolean isSelf = targets.size() == 1 && targets.get(0) == caster;
+        double tolerance = attr(caster, TOLERANCE, level, 4.0, isSelf);
+        double range = attr(caster, RANGE, level, 5.0, isSelf);
         boolean both = settings.getString(ALLY, "enemy").toLowerCase().equals("both");
         boolean ally = settings.getString(ALLY, "enemy").toLowerCase().equals("ally");
         boolean throughWall = settings.getString(WALL, "false").toLowerCase().equals("true");
         boolean self = settings.getString(CASTER, "false").toLowerCase().equals("true");
 
         int max = settings.getInt(MAX, 999);
-        Location wallCheckLoc = caster.getLocation().add(0, 1.5, 0);
+        Location wallCheckLoc = caster.getLocation().add(0, 0.5, 0);
         for (LivingEntity t : targets)
         {
             ArrayList<LivingEntity> list = new ArrayList<LivingEntity>();
@@ -54,11 +55,11 @@ public class LinearTarget extends EffectComponent
             List<LivingEntity> result = TargetHelper.getLivingTargets(t, range, tolerance);
             for (LivingEntity target : result)
             {
-                if (!throughWall && TargetHelper.isObstructed(wallCheckLoc, target.getLocation().add(0, 1, 0)))
+                if (!throughWall && TargetHelper.isObstructed(wallCheckLoc, target.getLocation().add(0, 0.5, 0)))
                 {
                     continue;
                 }
-                if (both || ally != Protection.canAttack(caster, target, true))
+                if (both || ally != SkillAPI.getSettings().canAttack(caster, target))
                 {
                     list.add(target);
                     if (list.size() >= max)

@@ -1,11 +1,15 @@
 package com.sucy.skill.dynamic.mechanic;
 
+import com.sucy.skill.SkillAPI;
 import com.sucy.skill.api.projectile.CustomProjectile;
 import com.sucy.skill.dynamic.EffectComponent;
+import com.sucy.skill.dynamic.TempEntity;
 import com.sucy.skill.listener.MechanicListener;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.entity.*;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.util.Vector;
 
@@ -26,6 +30,7 @@ public class ProjectileMechanic extends EffectComponent
     private static final String HEIGHT     = "height";
     private static final String RADIUS     = "radius";
     private static final String SPREAD     = "spread";
+    private static final String COST       = "cost";
 
     /**
      * Executes the component
@@ -40,14 +45,37 @@ public class ProjectileMechanic extends EffectComponent
     public boolean execute(LivingEntity caster, int level, List<LivingEntity> targets)
     {
         // Get common values
+        boolean isSelf = targets.size() == 1 && targets.get(0) == caster;
         int amount = (int) settings.getAttr(AMOUNT, level, 1.0);
-        double speed = settings.getAttr(SPEED, level, 2.0);
+        double speed = attr(caster, SPEED, level, 2.0, isSelf);
         String spread = settings.getString(SPREAD, "cone").toLowerCase();
-        String projectile = settings.getString(PROJECTILE, "arrow");
+        String projectile = settings.getString(PROJECTILE, "arrow").toLowerCase();
+        String cost = settings.getString(COST, "none").toLowerCase();
         Class<? extends Projectile> type = PROJECTILES.get(projectile);
         if (type == null)
         {
             type = Arrow.class;
+        }
+
+        // Cost to cast
+        if (cost.equals("one") || cost.equals("all"))
+        {
+            Material mat = MATERIALS.get(settings.getString(PROJECTILE, "arrow").toLowerCase());
+            if (mat == null || !(caster instanceof Player)) return false;
+            Player player = (Player) caster;
+            if (cost.equals("one") && !player.getInventory().contains(mat, 1))
+            {
+                return false;
+            }
+            if (cost.equals("all") && !player.getInventory().contains(mat, amount))
+            {
+                return false;
+            }
+            if (cost.equals("one"))
+            {
+                player.getInventory().removeItem(new ItemStack(mat));
+            }
+            else player.getInventory().removeItem(new ItemStack(mat, amount));
         }
 
         // Fire from each target
@@ -56,8 +84,8 @@ public class ProjectileMechanic extends EffectComponent
             // Apply the spread type
             if (spread.equals("rain"))
             {
-                double radius = settings.getAttr(RADIUS, level, 2.0);
-                double height = settings.getAttr(HEIGHT, level, 8.0);
+                double radius = attr(caster, RADIUS, level, 2.0, isSelf);
+                double height = attr(caster, HEIGHT, level, 8.0, isSelf);
 
                 ArrayList<Location> locs = CustomProjectile.calcRain(target.getLocation(), radius, height, amount);
                 for (Location loc : locs)
@@ -76,14 +104,16 @@ public class ProjectileMechanic extends EffectComponent
                     dir.setY(0);
                     dir.normalize();
                 }
-                double angle = settings.getAttr(ANGLE, level, 30.0);
+                double angle = attr(caster, ANGLE, level, 30.0, isSelf);
                 ArrayList<Vector> dirs = CustomProjectile.calcSpread(dir, angle, amount);
                 for (Vector d : dirs)
                 {
                     Projectile p = caster.launchProjectile(type);
-                    p.teleport(target.getLocation());
+                    p.teleport(target.getLocation().add(0, 0.5, 0).add(p.getVelocity()).setDirection(d));
                     p.setVelocity(d.multiply(speed));
-                    p.setMetadata(MechanicListener.P_CALL, new FixedMetadataValue(Bukkit.getPluginManager().getPlugin("SkillAPI"), this));
+                    SkillAPI api = (SkillAPI) Bukkit.getPluginManager().getPlugin("SkillAPI");
+                    p.setMetadata(MechanicListener.P_CALL, new FixedMetadataValue(api, this));
+                    p.setMetadata(LEVEL, new FixedMetadataValue(api, level));
                 }
             }
         }
@@ -99,21 +129,14 @@ public class ProjectileMechanic extends EffectComponent
      */
     public void callback(Projectile projectile, LivingEntity hit)
     {
-        boolean remove = false;
         if (hit == null)
         {
-            hit = projectile.getLocation().getWorld().spawn(projectile.getLocation(), Bat.class);
-            hit.setMaxHealth(10000);
-            hit.setHealth(hit.getMaxHealth());
-            remove = true;
+            hit = new TempEntity(projectile.getLocation());
         }
         ArrayList<LivingEntity> targets = new ArrayList<LivingEntity>();
         targets.add(hit);
         executeChildren((LivingEntity) projectile.getShooter(), projectile.getMetadata(LEVEL).get(0).asInt(), targets);
-        if (remove)
-        {
-            hit.remove();
-        }
+        projectile.remove();
     }
 
     private static final HashMap<String, Class<? extends Projectile>> PROJECTILES = new HashMap<String, Class<? extends Projectile>>()
@@ -122,5 +145,12 @@ public class ProjectileMechanic extends EffectComponent
             put("egg", Egg.class);
             put("ghast fireball", LargeFireball.class);
             put("snowball", Snowball.class);
+        }};
+
+    private static final HashMap<String, Material> MATERIALS = new HashMap<String, Material>()
+    {{
+            put("arrow", Material.ARROW);
+            put("egg", Material.EGG);
+            put("snowball", Material.SNOW_BALL);
         }};
 }

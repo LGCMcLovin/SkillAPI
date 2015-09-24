@@ -22,14 +22,14 @@ public class FireMechanic extends EffectComponent
      * @return true if applied to something, false otherwise
      */
     @Override
-    public boolean execute(final LivingEntity caster, final int level, final List<LivingEntity> targets)
+    public boolean execute(LivingEntity caster, int level, List<LivingEntity> targets)
     {
         if (targets.size() == 0)
         {
             return false;
         }
-
-        double seconds = settings.getAttr(SECONDS, level, 3.0);
+        boolean isSelf = targets.size() == 1 && targets.get(0) == caster;
+        double seconds = attr(caster, SECONDS, level, 3.0, isSelf);
         int ticks = (int) (seconds * 20);
         for (LivingEntity target : targets)
         {

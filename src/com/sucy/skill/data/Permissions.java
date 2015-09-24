@@ -13,4 +13,9 @@ public class Permissions
     public static final String MANA   = ROOT + "mana";
     public static final String POINTS = ROOT + "points";
     public static final String SKILL  = ROOT + "skill";
+    public static final String CLASS  = ROOT + "class";
+    public static final String RELOAD = ROOT + "reload";
+    public static final String FORCE  = ROOT + "force";
+    public static final String LORE   = ROOT + "lore";
+    public static final String ATTRIB = ROOT + "attrib";
 }

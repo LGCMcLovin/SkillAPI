@@ -1,5 +1,6 @@
 package com.sucy.skill.api.util;
 
+import com.sucy.skill.api.event.FlagApplyEvent;
 import com.sucy.skill.api.event.FlagExpireEvent;
 import com.sucy.skill.hook.PluginChecker;
 import com.sucy.skill.hook.VaultHook;
@@ -10,6 +11,7 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 
 /**
@@ -41,6 +43,10 @@ public class FlagData
      */
     public void addFlag(String flag, int ticks)
     {
+        FlagApplyEvent event = new FlagApplyEvent(entity, flag, ticks);
+        Bukkit.getPluginManager().callEvent(event);
+        if (event.isCancelled()) return;
+
         if (flags.containsKey(flag))
         {
             long time = flags.get(flag) - System.currentTimeMillis();
@@ -72,8 +78,7 @@ public class FlagData
         {
             flags.remove(flag);
             tasks.remove(flag).cancel();
-            FlagExpireEvent event = new FlagExpireEvent(entity, flag);
-            Bukkit.getPluginManager().callEvent(event);
+            Bukkit.getPluginManager().callEvent(new FlagExpireEvent(entity, flag));
             if (flag.startsWith("perm:") && PluginChecker.isVaultActive() && entity instanceof Player)
             {
                 VaultHook.remove((Player) entity, flag.substring(5));
@@ -90,15 +95,11 @@ public class FlagData
      */
     public void clear()
     {
-        for (String flag : flags.keySet())
+        ArrayList<String> flags = new ArrayList<String>(this.flags.keySet());
+        for (String flag : flags)
         {
             removeFlag(flag);
         }
-        for (BukkitTask task : tasks.values())
-        {
-            task.cancel();
-        }
-        tasks.clear();
         FlagManager.clearFlags(entity);
     }
 

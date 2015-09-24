@@ -1,16 +1,21 @@
 package com.sucy.skill.data;
 
-import com.rit.sucy.config.Config;
+import com.rit.sucy.config.CommentedConfig;
+import com.rit.sucy.config.parse.DataSection;
+import com.rit.sucy.player.Protection;
 import com.rit.sucy.text.TextFormatter;
 import com.sucy.skill.SkillAPI;
+import com.sucy.skill.api.skills.Skill;
+import com.sucy.skill.dynamic.DynamicSkill;
+import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.World;
-import org.bukkit.configuration.ConfigurationSection;
-import org.bukkit.entity.Player;
+import org.bukkit.entity.*;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.material.MaterialData;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,8 +28,8 @@ public class Settings
 
     private HashMap<String, GroupSettings> groups = new HashMap<String, GroupSettings>();
 
-    private SkillAPI             plugin;
-    private ConfigurationSection config;
+    private SkillAPI    plugin;
+    private DataSection config;
 
     /**
      * <p>Initializes a new settings manager.</p>
@@ -37,8 +42,11 @@ public class Settings
     public Settings(SkillAPI plugin)
     {
         this.plugin = plugin;
-        this.plugin.saveDefaultConfig();
-        config = plugin.getConfig();
+        CommentedConfig file = new CommentedConfig(plugin, "config");
+        file.checkDefaults();
+        file.trim();
+        file.save();
+        config = file.getConfig();
         reload();
     }
 
@@ -49,13 +57,7 @@ public class Settings
      */
     public void reload()
     {
-        plugin.reloadConfig();
-        Config.trim(config);
-        Config.setDefaults(config);
-        plugin.saveConfig();
-
         loadAccountSettings();
-        loadGroupSettings();
         loadClassSettings();
         loadManaSettings();
         loadSkillSettings();
@@ -65,6 +67,9 @@ public class Settings
         loadExpSettings();
         loadSkillBarSettings();
         loadLoggingSettings();
+        loadWorldSettings();
+        loadSaveSettings();
+        loadTargetingSettings();
     }
 
     ///////////////////////////////////////////////////////
@@ -73,16 +78,27 @@ public class Settings
     //                                                   //
     ///////////////////////////////////////////////////////
 
-    private void loadGroupSettings()
+    public void loadGroupSettings()
     {
-        Config file = new Config(plugin, "groups");
-        ConfigurationSection config = file.getConfig();
+        CommentedConfig file = new CommentedConfig(plugin, "groups");
+        DataSection config = file.getConfig();
         groups.clear();
 
-        for (String key : config.getKeys(false))
+        for (String key : config.keys())
         {
-            groups.put(key.toLowerCase(), new GroupSettings(config.getConfigurationSection(key)));
+            groups.put(key.toLowerCase(), new GroupSettings(config.getSection(key)));
         }
+        for (String group : SkillAPI.getGroups())
+        {
+            if (!groups.containsKey(group.toLowerCase()))
+            {
+                GroupSettings settings = new GroupSettings();
+                groups.put(group.toLowerCase(), settings);
+                settings.save(config.createSection(group.toLowerCase()));
+            }
+        }
+
+        file.save();
     }
 
     /**
@@ -183,7 +199,7 @@ public class Settings
         maxAccounts = config.getInt(ACCOUNT_MAX);
 
         // Permission account amounts
-        List<String> list = config.getStringList(ACCOUNT_PERM);
+        List<String> list = config.getList(ACCOUNT_PERM);
         for (String item : list)
         {
             if (!item.contains(":"))
@@ -210,16 +226,221 @@ public class Settings
 
     ///////////////////////////////////////////////////////
     //                                                   //
+    //                 Targeting Settings                //
+    //                                                   //
+    ///////////////////////////////////////////////////////
+
+    private static final String TARGET_BASE    = "Targeting.";
+    private static final String TARGET_MONSTER = TARGET_BASE + "monsters-enemy";
+    private static final String TARGET_PASSIVE = TARGET_BASE + "passive-ally";
+    private static final String TARGET_PLAYER  = TARGET_BASE + "player-ally";
+
+    private boolean monsterEnemy;
+    private boolean passiveAlly;
+    private boolean playerAlly;
+
+    /**
+     * Checks whether or not something can be attacked
+     *
+     * @param attacker the attacking entity
+     * @param target   the target entity
+     *
+     * @return true if can be attacked, false otherwise
+     */
+    public boolean canAttack(LivingEntity attacker, LivingEntity target)
+    {
+        if (attacker instanceof Player)
+        {
+            if (target instanceof Animals)
+            {
+                if (!(target instanceof Tameable) && passiveAlly)
+                    return false;
+            }
+            else if (target instanceof Monster)
+            {
+                if (monsterEnemy)
+                {
+                    return true;
+                }
+            }
+            else if (target instanceof Player)
+            {
+                if (playerAlly)
+                    return false;
+            }
+        }
+        return Protection.canAttack(attacker, target);
+    }
+
+    /**
+     * Checks whether or not something is an ally
+     *
+     * @param attacker the attacking entity
+     * @param target   the target entity
+     *
+     * @return true if an ally, false otherwise
+     */
+    public boolean isAlly(LivingEntity attacker, LivingEntity target)
+    {
+        return !canAttack(attacker, target);
+    }
+
+    private void loadTargetingSettings()
+    {
+        monsterEnemy = config.getBoolean(TARGET_MONSTER);
+        passiveAlly = config.getBoolean(TARGET_PASSIVE);
+        playerAlly = config.getBoolean(TARGET_PLAYER);
+    }
+
+    ///////////////////////////////////////////////////////
+    //                                                   //
+    //                  Saving Settings                  //
+    //                                                   //
+    ///////////////////////////////////////////////////////
+
+    private static final String SAVE_BASE = "Saving.";
+    private static final String SAVE_AUTO = SAVE_BASE + "auto-save";
+    private static final String SAVE_MINS = SAVE_BASE + "minutes";
+    private static final String SAVE_SQL  = SAVE_BASE + "sql-database";
+    private static final String SAVE_SQLD = SAVE_BASE + "sql-details";
+
+    private boolean auto;
+    private boolean useSql;
+    private int     minutes;
+
+    private String sqlHost;
+    private String sqlPort;
+    private String sqlDatabase;
+    private String sqlUser;
+    private String sqlPass;
+
+    /**
+     * Checks whether or not auto saving is enabled
+     *
+     * @return true if enabled, false otherwise
+     */
+    public boolean isAutoSave()
+    {
+        return auto;
+    }
+
+    /**
+     * Retrieves the amount of ticks in between each auto save
+     *
+     * @return frequency of saves
+     */
+    public int getSaveFreq()
+    {
+        return minutes * 60 * 20;
+    }
+
+    /**
+     * Checks whether or not the plugin is using SQL Database saving
+     *
+     * @return true if enabled, false otherwise
+     */
+    public boolean isUseSql()
+    {
+        return useSql;
+    }
+
+    /**
+     * Retrieves the host IP for the database
+     *
+     * @return host IP for SQL database
+     */
+    public String getSQLHost()
+    {
+        return sqlHost;
+    }
+
+    /**
+     * Retrieves the host port for the database
+     *
+     * @return host port for SQL database
+     */
+    public String getSQLPort()
+    {
+        return sqlPort;
+    }
+
+    /**
+     * Retrieves the name of the SQL database
+     *
+     * @return SQL database name
+     */
+    public String getSQLDatabase()
+    {
+        return sqlDatabase;
+    }
+
+    /**
+     * Retrieves the username for the database credentials
+     *
+     * @return SQL database username
+     */
+    public String getSQLUser()
+    {
+        return sqlUser;
+    }
+
+    /**
+     * Retrieves the password for the database credentials
+     *
+     * @return SQL database password
+     */
+    public String getSQLPass()
+    {
+        return sqlPass;
+    }
+
+    private void loadSaveSettings()
+    {
+        auto = config.getBoolean(SAVE_AUTO);
+        minutes = config.getInt(SAVE_MINS);
+        useSql = config.getBoolean(SAVE_SQL);
+
+        if (useSql)
+        {
+            DataSection details = config.getSection(SAVE_SQLD);
+            sqlHost = details.getString("host");
+            sqlPort = details.getString("port");
+            sqlDatabase = details.getString("database");
+            sqlUser = details.getString("username");
+            sqlPass = details.getString("password");
+        }
+    }
+
+    ///////////////////////////////////////////////////////
+    //                                                   //
     //                  Class Settings                   //
     //                                                   //
     ///////////////////////////////////////////////////////
 
-    private static final String CLASS_BASE = "Classes.";
-    private static final String CLASS_HP   = CLASS_BASE + "classless-hp";
-    private static final String CLASS_SHOW = CLASS_BASE + "show-auto-skills";
+    private static final String CLASS_BASE   = "Classes.";
+    private static final String CLASS_MODIFY = CLASS_BASE + "modify-health";
+    private static final String CLASS_HP     = CLASS_BASE + "classless-hp";
+    private static final String CLASS_SHOW   = CLASS_BASE + "show-auto-skills";
+    private static final String CLASS_ATTRIB = CLASS_BASE + "attributes-enabled";
+    private static final String CLASS_REFUND = CLASS_BASE + "attributes-downgrade";
+    private static final String CLASS_LEVEL  = CLASS_BASE + "level-up-skill";
 
+    private boolean modifyHealth;
     private int     defaultHealth;
     private boolean showAutoSkills;
+    private boolean attributesEnabled;
+    private boolean attributesDowngrade;
+    private String  levelUpSkill;
+
+    /**
+     * Checks whether or not SkillAPI should modify the max health of players
+     *
+     * @return true if enabled, false otherwise
+     */
+    public boolean isModifyHealth()
+    {
+        return modifyHealth;
+    }
 
     /**
      * <p>Retrieves the default health for players that do not have a class.</p>
@@ -241,10 +462,56 @@ public class Settings
         return showAutoSkills;
     }
 
+    /**
+     * Checks whether or not attributes are enabled
+     *
+     * @return true if enabled, false otherwise
+     */
+    public boolean isAttributesEnabled()
+    {
+        return attributesEnabled;
+    }
+
+    /**
+     * Checks whether or not attribute points can be refunded
+     *
+     * @return true if can refund, false otherwise
+     */
+    public boolean isAttributesDowngrade()
+    {
+        return attributesDowngrade;
+    }
+
+    /**
+     * Checks whether or not the plugin has a valid skill for
+     * level up effects loaded.
+     *
+     * @return true if one is available, false otherwise
+     */
+    public boolean hasLevelUpEffect()
+    {
+        return getLevelUpSkill() != null;
+    }
+
+    /**
+     * Retrieves the skill used for level up effects
+     *
+     * @return skill for level up effects
+     */
+    public DynamicSkill getLevelUpSkill()
+    {
+        Skill skill = SkillAPI.getSkill(levelUpSkill);
+        return (skill instanceof DynamicSkill) ? (DynamicSkill) skill : null;
+    }
+
     private void loadClassSettings()
     {
+        modifyHealth = config.getBoolean(CLASS_MODIFY);
         defaultHealth = config.getInt(CLASS_HP);
         showAutoSkills = config.getBoolean(CLASS_SHOW);
+        attributesEnabled = config.getBoolean(CLASS_ATTRIB);
+        attributesDowngrade = config.getBoolean(CLASS_REFUND);
+        levelUpSkill = config.getString(CLASS_LEVEL);
     }
 
     ///////////////////////////////////////////////////////
@@ -283,7 +550,7 @@ public class Settings
     private void loadManaSettings()
     {
         manaEnabled = config.getBoolean(MANA_ENABLED);
-        gainFreq = (int)(config.getDouble(MANA_FREQ) * 20);
+        gainFreq = (int) (config.getDouble(MANA_FREQ) * 20);
     }
 
     ///////////////////////////////////////////////////////
@@ -293,10 +560,12 @@ public class Settings
     ///////////////////////////////////////////////////////
 
     private static final String SKILL_BASE      = "Skills.";
-    private static final String SKILL_TYPE      = SKILL_BASE + "tree-type";
     private static final String SKILL_DOWNGRADE = SKILL_BASE + "allow-downgrade";
     private static final String SKILL_MESSAGE   = SKILL_BASE + "show-messages";
     private static final String SKILL_RADIUS    = SKILL_BASE + "message-radius";
+    private static final String SKILL_BLOCKS    = SKILL_BASE + "block-filter";
+
+    private ArrayList<Material> filteredBlocks;
 
     private boolean allowDowngrade;
     private boolean showSkillMessages;
@@ -332,11 +601,36 @@ public class Settings
         return messageRadius;
     }
 
+    /**
+     * Retrieves the list of filtered blocks
+     *
+     * @return list of blocks
+     */
+    public List<Material> getFilteredBlocks()
+    {
+        return filteredBlocks;
+    }
+
     private void loadSkillSettings()
     {
         allowDowngrade = config.getBoolean(SKILL_DOWNGRADE);
         showSkillMessages = config.getBoolean(SKILL_MESSAGE);
         messageRadius = config.getInt(SKILL_RADIUS);
+
+        filteredBlocks = new ArrayList<Material>();
+        List<String> list = config.getList(SKILL_BLOCKS);
+        for (String item : list)
+        {
+            try
+            {
+                Material mat = Material.valueOf(item.toUpperCase().replace(' ', '_'));
+                filteredBlocks.add(mat);
+            }
+            catch (Exception ex)
+            {
+                Bukkit.getLogger().info("Invalid block type \"" + item + "\"");
+            }
+        }
     }
 
     ///////////////////////////////////////////////////////
@@ -345,13 +639,17 @@ public class Settings
     //                                                   //
     ///////////////////////////////////////////////////////
 
-    private static final String ITEM_BASE   = "Items.";
-    private static final String ITEM_LORE   = ITEM_BASE + "lore-requirements";
-    private static final String ITEM_DAMAGE = ITEM_BASE + "default-one-damage";
-    private static final String ITEM_CHECK  = ITEM_BASE + "players-per-check";
+    private static final String ITEM_BASE    = "Items.";
+    private static final String ITEM_LORE    = ITEM_BASE + "lore-requirements";
+    private static final String ITEM_CLASS   = ITEM_BASE + "lore-class-text";
+    private static final String ITEM_LEVEL   = ITEM_BASE + "lore-level-text";
+    private static final String ITEM_EXCLUDE = ITEM_BASE + "lore-exclude-text";
+    private static final String ITEM_CHECK   = ITEM_BASE + "players-per-check";
 
     private boolean checkLore;
-    private boolean defaultOneDamage;
+    private String  loreClassText;
+    private String  loreLevelText;
+    private String  loreExcludeText;
     private int     playersPerCheck;
 
     /**
@@ -365,13 +663,33 @@ public class Settings
     }
 
     /**
-     * Checks whether or not items are defaulted to one damage when unknown
+     * Retrieves the text used for class requirements on items
      *
-     * @return true if enabled, false otherwise
+     * @return lore text for class requirements
      */
-    public boolean isDefaultOneDamage()
+    public String getLoreClassText()
     {
-        return defaultOneDamage;
+        return loreClassText;
+    }
+
+    /**
+     * Retrieves the text used for level requirements on items
+     *
+     * @return lore text for level requirements
+     */
+    public String getLoreLevelText()
+    {
+        return loreLevelText;
+    }
+
+    /**
+     * Retrieves the text used for excluded classes on items
+     *
+     * @return lore text for excluded classes
+     */
+    public String getLoreExcludeText()
+    {
+        return loreExcludeText;
     }
 
     /**
@@ -384,34 +702,12 @@ public class Settings
         return playersPerCheck;
     }
 
-    /**
-     * Sets whether or not to default unknown items to one damage
-     *
-     * @param oneDamage whether or not to default unknown items to one damage
-     */
-    public void setDefaultOneDamage(boolean oneDamage)
-    {
-        defaultOneDamage = oneDamage;
-        config.set(ITEM_DAMAGE, oneDamage);
-        plugin.saveConfig();
-    }
-
-    /**
-     * Sets the number of players to check each update
-     *
-     * @param players players to check each update
-     */
-    public void setPlayersPerCheck(int players)
-    {
-        playersPerCheck = players;
-        config.set(ITEM_CHECK, players);
-        plugin.saveConfig();
-    }
-
     private void loadItemSettings()
     {
         checkLore = config.getBoolean(ITEM_LORE);
-        defaultOneDamage = config.getBoolean(ITEM_DAMAGE);
+        loreClassText = config.getString(ITEM_CLASS);
+        loreLevelText = config.getString(ITEM_LEVEL);
+        loreExcludeText = config.getString(ITEM_EXCLUDE);
         playersPerCheck = config.getInt(ITEM_CHECK);
     }
 
@@ -421,18 +717,26 @@ public class Settings
     //                                                   //
     ///////////////////////////////////////////////////////
 
-    private static final String GUI_BASE  = "GUI.";
-    private static final String GUI_OLD   = GUI_BASE + "old-health-bar";
-    private static final String GUI_BAR   = GUI_BASE + "use-level-bar";
-    private static final String GUI_BOARD = GUI_BASE + "scoreboard-enabled";
-    private static final String GUI_NAME  = GUI_BASE + "show-class-name";
-    private static final String GUI_LEVEL = GUI_BASE + "show-class-level";
+    private static final String GUI_BASE   = "GUI.";
+    private static final String GUI_OLD    = GUI_BASE + "old-health-bar";
+    private static final String GUI_LVLBAR = GUI_BASE + "level-bar";
+    private static final String GUI_FOOD   = GUI_BASE + "food-bar";
+    private static final String GUI_ACTION = GUI_BASE + "use-action-bar";
+    private static final String GUI_TEXT   = GUI_BASE + "action-bar-text";
+    private static final String GUI_BOARD  = GUI_BASE + "scoreboard-enabled";
+    private static final String GUI_NAME   = GUI_BASE + "show-class-name";
+    private static final String GUI_LEVEL  = GUI_BASE + "show-class-level";
+    private static final String GUI_MAP    = GUI_BASE + "map-tree-enabled";
 
     private boolean oldHealth;
-    private boolean useLevelBar;
+    private String  levelBar;
+    private String  foodBar;
+    private boolean useActionBar;
+    private String  actionText;
     private boolean showScoreboard;
     private boolean showClassName;
     private boolean showClassLevel;
+    private boolean showMapTree;
 
     /**
      * Checks whether or not old health bars (fixed 10 hearts) are enabled
@@ -445,13 +749,43 @@ public class Settings
     }
 
     /**
-     * Checks whether or not the level bar is to be used for class level
+     * Gets the setting for using the level bar
      *
-     * @return true if enabled, false otherwise
+     * @return level bar setting
      */
-    public boolean isUseLevelBar()
+    public String getLevelBar()
     {
-        return useLevelBar;
+        return levelBar;
+    }
+
+    /**
+     * Gets the setting for using the food bar
+     *
+     * @return food bar setting
+     */
+    public String getFoodBar()
+    {
+        return foodBar;
+    }
+
+    /**
+     * Checks whether or not the action bar is being used
+     *
+     * @return true if used, false otherwise
+     */
+    public boolean isUseActionBar()
+    {
+        return useActionBar;
+    }
+
+    /**
+     * Gets the text to display on the action bar
+     *
+     * @return action bar text
+     */
+    public String getActionText()
+    {
+        return actionText;
     }
 
     /**
@@ -486,13 +820,27 @@ public class Settings
         return showClassLevel;
     }
 
+    /**
+     * Checks whether or not map trees are enabled on the server
+     *
+     * @return true if enabled, false otherwise
+     */
+    public boolean isMapTreeEnabled()
+    {
+        return showMapTree;
+    }
+
     private void loadGUISettings()
     {
         oldHealth = config.getBoolean(GUI_OLD);
-        useLevelBar = config.getBoolean(GUI_BAR);
+        levelBar = config.getString(GUI_LVLBAR);
+        foodBar = config.getString(GUI_FOOD);
+        useActionBar = config.getBoolean(GUI_ACTION);
+        actionText = config.getString(GUI_TEXT);
         showScoreboard = config.getBoolean(GUI_BOARD);
         showClassName = config.getBoolean(GUI_NAME);
         showClassLevel = config.getBoolean(GUI_LEVEL);
+        showMapTree = config.getBoolean(GUI_MAP);
     }
 
     ///////////////////////////////////////////////////////
@@ -501,18 +849,20 @@ public class Settings
     //                                                   //
     ///////////////////////////////////////////////////////
 
-    private static final String COMBO_BASE = "Click Combos.";
+    private static final String COMBO_BASE    = "Click Combos.";
     private static final String COMBO_ENABLED = COMBO_BASE + "enabled";
-    private static final String COMBO_LEFT = COMBO_BASE + "use-click-left";
-    private static final String COMBO_RIGHT = COMBO_BASE + "use-click-right";
-    private static final String COMBO_SHIFT = COMBO_BASE + "use-click-shift";
-    private static final String COMBO_SIZE = COMBO_BASE + "combo-size";
+    private static final String COMBO_LEFT    = COMBO_BASE + "use-click-left";
+    private static final String COMBO_RIGHT   = COMBO_BASE + "use-click-right";
+    private static final String COMBO_SHIFT   = COMBO_BASE + "use-click-shift";
+    private static final String COMBO_SIZE    = COMBO_BASE + "combo-size";
+    private static final String COMBO_TIME    = COMBO_BASE + "click-time";
 
     private boolean combosEnabled;
     private boolean comboLeft;
     private boolean comboRight;
     private boolean comboShift;
-    private int comboSize;
+    private int     comboSize;
+    private int     clickTime;
 
     /**
      * Checks whether or not click combos are enabled
@@ -564,6 +914,16 @@ public class Settings
         return comboSize;
     }
 
+    /**
+     * Retrieves the amount of seconds allowed between clicks before the combo resets
+     *
+     * @return number of seconds before a click combo resets
+     */
+    public int getClickTime()
+    {
+        return clickTime;
+    }
+
     private void loadComboSettings()
     {
         combosEnabled = config.getBoolean(COMBO_ENABLED);
@@ -571,6 +931,7 @@ public class Settings
         comboRight = config.getBoolean(COMBO_RIGHT);
         comboShift = config.getBoolean(COMBO_SHIFT);
         comboSize = config.getInt(COMBO_SIZE);
+        clickTime = (int) (1000 * config.getDouble(COMBO_TIME));
     }
 
     ///////////////////////////////////////////////////////
@@ -593,6 +954,7 @@ public class Settings
      * Gets the required amount of experience at a given level
      *
      * @param level level of the class
+     *
      * @return required experience to gain a level
      */
     public int getRequiredExp(int level)
@@ -604,6 +966,7 @@ public class Settings
      * Gets the experience yield of a mob
      *
      * @param mob mob to get the yield of
+     *
      * @return experience yield
      */
     public double getYield(String mob)
@@ -696,15 +1059,15 @@ public class Settings
         this.showExpMessages = config.getBoolean(EXP_BASE + "exp-message-enabled");
         this.showLevelMessages = config.getBoolean(EXP_BASE + "level-message-enabled");
 
-        ConfigurationSection formula = config.getConfigurationSection(EXP_BASE + "formula");
+        DataSection formula = config.getSection(EXP_BASE + "formula");
         int x = formula.getInt("x");
         int y = formula.getInt("y");
         int z = formula.getInt("z");
         expFormula = new ExpFormula(x, y, z);
 
-        ConfigurationSection yields = config.getConfigurationSection(EXP_BASE + "yields");
+        DataSection yields = config.getSection(EXP_BASE + "yields");
         this.yields.clear();
-        for (String key : yields.getKeys(false))
+        for (String key : yields.keys())
         {
             this.yields.put(key, yields.getDouble(key));
         }
@@ -774,11 +1137,11 @@ public class Settings
 
     private void loadSkillBarSettings()
     {
-        ConfigurationSection bar = config.getConfigurationSection("Skill Bar");
+        DataSection bar = config.getSection("Skill Bar");
         skillBarEnabled = bar.getBoolean("enabled", false);
         skillBarCooldowns = bar.getBoolean("show-cooldown", true);
 
-        ConfigurationSection icon = bar.getConfigurationSection("empty-icon");
+        DataSection icon = bar.getSection("empty-icon");
         Material mat;
         try
         {
@@ -795,12 +1158,21 @@ public class Settings
         meta.setDisplayName(TextFormatter.colorString(icon.getString("text", "&7Unassigned")));
         unassigned.setItemMeta(meta);
 
-        ConfigurationSection layout = bar.getConfigurationSection("layout");
+        DataSection layout = bar.getSection("layout");
+        int skillCount = 0;
         for (int i = 0; i < 9; i++)
         {
-            ConfigurationSection slot = layout.getConfigurationSection((i + 1) + "");
+            DataSection slot = layout.getSection((i + 1) + "");
             defaultBarLayout[i] = slot.getBoolean("skill", i <= 5);
             lockedSlots[i] = slot.getBoolean("locked", false);
+            if (defaultBarLayout[i]) {
+                skillCount++;
+            }
+        }
+        if (skillCount == 9) {
+            Bukkit.getLogger().severe("Invalid Skill Bar Setup - Cannot have all 9 skill slots!");
+            Bukkit.getLogger().severe("  -> Setting last slot to be a weapon slot");
+            defaultBarLayout[8] = false;
         }
     }
 
@@ -833,19 +1205,20 @@ public class Settings
     //                                                   //
     ///////////////////////////////////////////////////////
 
-    private static final String WORLD_BASE = "Worlds.";
+    private static final String WORLD_BASE   = "Worlds.";
     private static final String WORLD_ENABLE = WORLD_BASE + "enable";
-    private static final String WORLD_TYPE = WORLD_BASE + "use-as-enabling";
-    private static final String WORLD_LIST = WORLD_BASE + "worlds";
+    private static final String WORLD_TYPE   = WORLD_BASE + "use-as-enabling";
+    private static final String WORLD_LIST   = WORLD_BASE + "worlds";
 
     private List<String> worlds;
-    private boolean worldEnabled;
-    private boolean worldEnableList;
+    private boolean      worldEnabled;
+    private boolean      worldEnableList;
 
     /**
      * Checks whether or not SkillAPI is active in the world
      *
      * @param world world to check
+     *
      * @return true if active, false otherwise
      */
     public boolean isWorldEnabled(World world)
@@ -858,6 +1231,7 @@ public class Settings
      * the given name.
      *
      * @param world world name
+     *
      * @return true if active, false otherwise
      */
     public boolean isWorldEnabled(String world)
@@ -869,6 +1243,6 @@ public class Settings
     {
         worldEnabled = config.getBoolean(WORLD_ENABLE);
         worldEnableList = config.getBoolean(WORLD_TYPE);
-        worlds = config.getStringList(WORLD_LIST);
+        worlds = config.getList(WORLD_LIST);
     }
 }

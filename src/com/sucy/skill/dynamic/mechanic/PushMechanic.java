@@ -23,14 +23,15 @@ public class PushMechanic extends EffectComponent
      * @return true if applied to something, false otherwise
      */
     @Override
-    public boolean execute(final LivingEntity caster, final int level, final List<LivingEntity> targets)
+    public boolean execute(LivingEntity caster, int level, List<LivingEntity> targets)
     {
         if (targets.size() == 0)
         {
             return false;
         }
 
-        double speed = settings.getAttr(SPEED, level, 3.0);
+        boolean isSelf = targets.size() == 1 && targets.get(0) == caster;
+        double speed = attr(caster, SPEED, level, 3.0, isSelf);
         boolean worked = false;
         for (LivingEntity target : targets)
         {

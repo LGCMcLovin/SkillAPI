@@ -56,7 +56,7 @@ public class BuffData
      */
     public void addDefenseBuff(Buff buff, int ticks)
     {
-        damageBuffs.put(nextId, buff);
+        defenseBuffs.put(nextId, buff);
         tasks.put(nextId, new BuffTask(nextId).runTaskLater(plugin, ticks));
         nextId = (nextId + 1) % MAX_ID;
     }
@@ -82,13 +82,17 @@ public class BuffData
      *
      * @return modified damage amount
      */
-    public double modifyTakenDefense(double damage)
+    public double modifyTakenDamage(double damage)
     {
         return modify(defenseBuffs.values(), damage);
     }
 
     private double modify(Collection<Buff> buffs, double value)
     {
+        if (value <= 0)
+        {
+            return 0;
+        }
         double multiplier = 1;
         double bonus = 0;
         for (Buff buff : buffs)

@@ -3,10 +3,10 @@ package com.sucy.skill.api.util;
 import com.rit.sucy.reflect.Particle;
 import com.sucy.skill.api.Settings;
 import com.sucy.skill.api.enums.Direction;
+import org.bukkit.Bukkit;
 import org.bukkit.Effect;
 import org.bukkit.EntityEffect;
 import org.bukkit.Location;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Wolf;
 import org.bukkit.potion.PotionEffect;
@@ -24,6 +24,11 @@ public class ParticleHelper
      * Settings key for the arrangement type of particles
      */
     public static final String ARRANGEMENT_KEY = "arrangement";
+
+    /**
+     * The level to use for scaling values
+     */
+    public static final String LEVEL = "level";
 
     /**
      * Settings key for the type of particle
@@ -85,7 +90,7 @@ public class ParticleHelper
      */
     public static void play(Location loc, EntityEffect effect)
     {
-        Wolf wolf = (Wolf)loc.getWorld().spawnEntity(loc, EntityType.WOLF);
+        Wolf wolf = (Wolf) loc.getWorld().spawnEntity(loc, EntityType.WOLF);
         wolf.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY, 100, 100));
         wolf.playEffect(effect);
         wolf.remove();
@@ -102,8 +107,9 @@ public class ParticleHelper
         String particle = settings.getString(PARTICLE_KEY, "invalid");
         if (settings.has(ARRANGEMENT_KEY))
         {
-            double radius = settings.getDouble(RADIUS_KEY, 3.0);
-            int amount = settings.getInt(AMOUNT_KEY, 10);
+            int level = settings.getInt(LEVEL, 1);
+            double radius = settings.getAttr(RADIUS_KEY, level, 3.0);
+            int amount = (int) settings.getAttr(AMOUNT_KEY, level, 10);
 
             String arrangement = settings.getString(ARRANGEMENT_KEY).toLowerCase();
             if (arrangement.equals("circle"))
@@ -168,6 +174,8 @@ public class ParticleHelper
         {
             Particle.play(REFLECT_PARTICLES.get(particle), loc, settings.getInt(VISIBLE_RADIUS_KEY, 25), (float) settings.getDouble(DX_KEY, 0.0), (float) settings.getDouble(DY_KEY, 0.0), (float) settings.getDouble(DZ_KEY, 0.0), (float) settings.getDouble(SPEED_KEY, 1.0), 1);
         }
+
+        else Bukkit.getLogger().info("\"" + particle + "\" not a valid particle");
     }
 
     /**
@@ -307,7 +315,7 @@ public class ParticleHelper
             put("drip water", "dripWater");
             put("enchantment table", "enchantmenttable");
             put("explode", "explode");
-            put("fireworks spark", "fireworksSpark");
+            put("firework spark", "fireworksSpark");
             put("flame", "flame");
             put("footstep", "footstep");
             put("happy villager", "happyVillager");

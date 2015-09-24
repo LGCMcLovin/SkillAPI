@@ -27,21 +27,25 @@ public class LaunchMechanic extends EffectComponent
      * @return true if applied to something, false otherwise
      */
     @Override
-    public boolean execute(final LivingEntity caster, final int level, final List<LivingEntity> targets)
+    public boolean execute(LivingEntity caster, int level, List<LivingEntity> targets)
     {
         if (targets.size() == 0)
         {
             return false;
         }
 
-        double forward = settings.getAttr(FORWARD, level, 0);
-        double upward = settings.getAttr(UPWARD, level, 0);
-        double right = settings.getAttr(RIGHT, level, 0);
+        boolean isSelf = targets.size() == 1 && targets.get(0) == caster;
+        double forward = attr(caster, FORWARD, level, 0, isSelf);
+        double upward = attr(caster, UPWARD, level, 0, isSelf);
+        double right = attr(caster, RIGHT, level, 0, isSelf);
         for (LivingEntity target : targets)
         {
             Vector dir = target.getLocation().getDirection().setY(0).normalize();
-            Vector nor = dir.crossProduct(up);
-            target.setVelocity(dir.multiply(forward).add(nor.multiply(right)).setY(upward));
+            Vector nor = dir.clone().crossProduct(up);
+            dir.multiply(forward);
+            dir.add(nor.multiply(right)).setY(upward);
+
+            target.setVelocity(dir);
         }
         return targets.size() > 0;
     }

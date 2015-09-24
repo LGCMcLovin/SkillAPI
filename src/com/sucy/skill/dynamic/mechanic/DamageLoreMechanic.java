@@ -29,10 +29,11 @@ public class DamageLoreMechanic extends EffectComponent
     @Override
     public boolean execute(LivingEntity caster, int level, List<LivingEntity> targets)
     {
+        boolean isSelf = targets.size() == 1 && targets.get(0) == caster;
         String regex = settings.getString(REGEX, "Damage: {value}");
         regex = regex.replace("{value}", "([0-9]+)");
         Pattern pattern = Pattern.compile(regex);
-        double m = settings.getAttr(MULTIPLIER, level, 1.0);
+        double m = attr(caster, MULTIPLIER, level, 1.0, isSelf);
         boolean worked = false;
         for (LivingEntity target : targets)
         {
@@ -40,7 +41,11 @@ public class DamageLoreMechanic extends EffectComponent
             {
                 continue;
             }
-            ItemStack hand = target.getEquipment().getItemInHand();
+            ItemStack hand = caster.getEquipment().getItemInHand();
+            if (!hand.hasItemMeta() || !hand.getItemMeta().hasLore())
+            {
+                continue;
+            }
             List<String> lore = hand.getItemMeta().getLore();
             for (String line : lore)
             {
@@ -48,13 +53,16 @@ public class DamageLoreMechanic extends EffectComponent
                 Matcher matcher = pattern.matcher(line);
                 if (matcher.find())
                 {
-                    String value = matcher.group();
+                    String value = matcher.group(1);
                     try
                     {
                         double base = Double.parseDouble(value);
-                        skill.damage(target, base * m, caster);
-                        worked = true;
-                        break;
+                        if (base * m > 0)
+                        {
+                            skill.damage(target, base * m, caster);
+                            worked = true;
+                            break;
+                        }
                     }
                     catch (Exception ex)
                     {

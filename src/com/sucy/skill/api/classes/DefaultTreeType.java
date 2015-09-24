@@ -1,7 +1,7 @@
 package com.sucy.skill.api.classes;
 
 import com.sucy.skill.SkillAPI;
-import com.sucy.skill.tree.*;
+import com.sucy.skill.tree.basic.*;
 
 /**
  * Types of SkillTrees that are available for classes/skills to use
@@ -12,6 +12,7 @@ public enum DefaultTreeType implements TreeType
     BASIC_VERTICAL,
     LEVEL_HORIZONTAL,
     LEVEL_VERTICAL,
+    FLOOD,
     REQUIREMENT;
 
     /**
@@ -19,7 +20,7 @@ public enum DefaultTreeType implements TreeType
      *
      * @return skill tree instance
      */
-    public SkillTree getTree(SkillAPI api, RPGClass parent)
+    public InventoryTree getTree(SkillAPI api, RPGClass parent)
     {
         switch (this)
         {
@@ -31,6 +32,8 @@ public enum DefaultTreeType implements TreeType
                 return new LevelHorizontalTree(api, parent);
             case LEVEL_VERTICAL:
                 return new LevelVerticalTree(api, parent);
+            case FLOOD:
+                return new FloodTree(api, parent);
             case REQUIREMENT:
                 return new RequirementTree(api, parent);
             default:

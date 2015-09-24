@@ -1,9 +1,10 @@
 package com.sucy.skill.api.player;
 
 import com.rit.sucy.config.FilterType;
-import com.rit.sucy.player.Protection;
+import com.rit.sucy.items.InventoryManager;
 import com.rit.sucy.player.TargetHelper;
 import com.rit.sucy.version.VersionManager;
+import com.rit.sucy.version.VersionPlayer;
 import com.sucy.skill.SkillAPI;
 import com.sucy.skill.api.classes.RPGClass;
 import com.sucy.skill.api.enums.*;
@@ -13,15 +14,25 @@ import com.sucy.skill.api.skills.Skill;
 import com.sucy.skill.api.skills.SkillShot;
 import com.sucy.skill.api.skills.TargetSkill;
 import com.sucy.skill.data.GroupSettings;
+import com.sucy.skill.data.Permissions;
+import com.sucy.skill.dynamic.EffectComponent;
 import com.sucy.skill.language.ErrorNodes;
 import com.sucy.skill.language.RPGFilter;
+import com.sucy.skill.listener.AttributeListener;
+import com.sucy.skill.listener.TreeListener;
+import com.sucy.skill.manager.AttributeManager;
 import com.sucy.skill.manager.ClassBoardManager;
+import com.sucy.skill.tree.basic.InventoryTree;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 
@@ -32,25 +43,34 @@ import java.util.HashMap;
  */
 public final class PlayerData
 {
-    private final HashMap<String, PlayerClass>   classes = new HashMap<String, PlayerClass>();
-    private final HashMap<String, PlayerSkill>   skills  = new HashMap<String, PlayerSkill>();
-    private final HashMap<Material, PlayerSkill> binds   = new HashMap<Material, PlayerSkill>();
+    private final HashMap<String, PlayerClass>   classes    = new HashMap<String, PlayerClass>();
+    private final HashMap<String, PlayerSkill>   skills     = new HashMap<String, PlayerSkill>();
+    private final HashMap<Material, PlayerSkill> binds      = new HashMap<Material, PlayerSkill>();
+    private final HashMap<String, Integer>       attributes = new HashMap<String, Integer>();
 
     private OfflinePlayer  player;
     private PlayerSkillBar skillBar;
+    private PlayerCombos   combos;
+    private String         scheme;
     private double         mana;
     private double         maxMana;
     private double         bonusHealth;
     private double         bonusMana;
+    private boolean        init;
+    private int            attribPoints;
 
     /**
      * Initializes a new account data representation for a player.
      *
      * @param player player to store the data for
      */
-    public PlayerData(OfflinePlayer player)
+    public PlayerData(OfflinePlayer player, boolean init)
     {
         this.player = player;
+        this.skillBar = new PlayerSkillBar(this);
+        this.combos = new PlayerCombos(this);
+        this.init = SkillAPI.isLoaded() && init;
+        this.scheme = "default";
         for (String group : SkillAPI.getGroups())
         {
             GroupSettings settings = SkillAPI.getSettings().getGroupSettings(group);
@@ -61,8 +81,6 @@ public final class PlayerData
                 setClass(rpgClass);
             }
         }
-
-        this.skillBar = new PlayerSkillBar(this);
     }
 
     /**
@@ -93,6 +111,285 @@ public final class PlayerData
     public PlayerSkillBar getSkillBar()
     {
         return skillBar;
+    }
+
+    /**
+     * Returns the data for the player's combos
+     *
+     * @return combo data for the player
+     */
+    public PlayerCombos getComboData()
+    {
+        return combos;
+    }
+
+    /**
+     * Ends the initialization flag for the data. Used by the
+     * API to avoid async issues. Do not use this in other
+     * plugins.
+     */
+    public void endInit()
+    {
+        init = false;
+    }
+
+    /**
+     * Retrieves the name of the active map menu scheme for the player
+     *
+     * @return map menu scheme name
+     */
+    public String getScheme()
+    {
+        return scheme;
+    }
+
+    /**
+     * Sets the active scheme name for the player
+     *
+     * @param name name of the scheme
+     */
+    public void setScheme(String name)
+    {
+        scheme = name;
+    }
+
+    ///////////////////////////////////////////////////////
+    //                                                   //
+    //                    Attributes                     //
+    //                                                   //
+    ///////////////////////////////////////////////////////
+
+    /**
+     * Gets the number of attribute points invested in the
+     * given attribute
+     *
+     * @param key attribute key
+     *
+     * @return number of invested points
+     */
+    public int getAttribute(String key)
+    {
+        key = key.toLowerCase();
+        if (!attributes.containsKey(key))
+        {
+            return 0;
+        }
+        return attributes.get(key);
+    }
+
+    /**
+     * Checks whether or not the player has any
+     * points invested in a given attribute
+     *
+     * @param key attribute key
+     *
+     * @return true if any points are invested, false otherwise
+     */
+    public boolean hasAttribute(String key)
+    {
+        return getAttribute(key.toLowerCase()) > 0;
+    }
+
+    /**
+     * Invests a point in the attribute if the player
+     * has any remaining attribute points. If the player
+     * has no remaining points, this will do nothing.
+     *
+     * @param key attribute key
+     */
+    public void upAttribute(String key)
+    {
+        key = key.toLowerCase();
+        int current = getAttribute(key);
+        int max = SkillAPI.getAttributeManager().getAttribute(key).getMax();
+        if (attribPoints > 0 && current < max)
+        {
+            PlayerUpAttributeEvent event = new PlayerUpAttributeEvent(this, key);
+            Bukkit.getPluginManager().callEvent(event);
+            if (event.isCancelled()) return;
+
+            attributes.put(key, current + 1);
+            attribPoints--;
+        }
+    }
+
+    /**
+     * Gives the player attribute points without costing
+     * attribute points.
+     *
+     * @param key    attribute to give points for
+     * @param amount amount to give
+     */
+    public void giveAttribute(String key, int amount)
+    {
+        key = key.toLowerCase();
+        int current = getAttribute(key);
+        int max = SkillAPI.getAttributeManager().getAttribute(key).getMax();
+        amount = Math.min(amount, max - current);
+        if (amount > 0)
+        {
+            attributes.put(key, current + amount);
+        }
+    }
+
+    /**
+     * Refunds an attribute point from the given attribute
+     * if there are any points invested in it. If there are
+     * none, this will do nothing.
+     *
+     * @param key attribute key
+     */
+    public void refundAttribute(String key)
+    {
+        key = key.toLowerCase();
+        if (hasAttribute(key))
+        {
+            PlayerRefundAttributeEvent event = new PlayerRefundAttributeEvent(this, key);
+            Bukkit.getPluginManager().callEvent(event);
+            if (event.isCancelled()) return;
+
+            int current = getAttribute(key);
+            attribPoints += 1;
+            attributes.put(key, current - 1);
+            if (current - 1 <= 0) attributes.remove(key);
+            AttributeListener.updatePlayer(this);
+        }
+    }
+
+    /**
+     * Refunds all spent attribute points for a specific attribute
+     */
+    public void refundAttributes(String key)
+    {
+        key = key.toLowerCase();
+        attribPoints += getAttribute(key);
+        attributes.remove(key);
+        AttributeListener.updatePlayer(this);
+    }
+
+    /**
+     * Refunds all spent attribute points
+     */
+    public void refundAttributes()
+    {
+        ArrayList<String> keys = new ArrayList<String>(attributes.keySet());
+        for (String key : keys)
+        {
+            refundAttributes(key);
+        }
+    }
+
+    /**
+     * Retrieves the current number of attribute points the player has
+     *
+     * @return attribute point total
+     */
+    public int getAttributePoints()
+    {
+        return attribPoints;
+    }
+
+    /**
+     * Gives the player attribute points
+     *
+     * @param amount amount of attribute points
+     */
+    public void giveAttribPoints(int amount)
+    {
+        attribPoints += amount;
+    }
+
+    /**
+     * Sets the current amount of attribute points
+     *
+     * @param amount amount of points to have
+     */
+    public void setAttribPoints(int amount)
+    {
+        attribPoints = amount;
+    }
+
+    /**
+     * Scales a stat value using the player's attributes
+     *
+     * @param stat  stat key
+     * @param value base value
+     *
+     * @return modified value
+     */
+    public double scaleStat(String stat, double value)
+    {
+        AttributeManager manager = SkillAPI.getAttributeManager();
+        if (manager == null) return value;
+        for (String key : manager.getKeys())
+        {
+            int amount = getAttribute(key);
+            if (amount > 0)
+            {
+                value = manager.getAttribute(key).modifyStat(stat, value, amount);
+            }
+        }
+        return value;
+    }
+
+    /**
+     * Scales a dynamic skill's value using global modifiers
+     *
+     * @param component component holding the value
+     * @param key       key of the value
+     * @param value     unmodified value
+     * @param self      whether or not the player is the target
+     *
+     * @return the modified value
+     */
+    public double scaleDynamic(EffectComponent component, String key, double value, boolean self)
+    {
+        AttributeManager manager = SkillAPI.getAttributeManager();
+        if (manager == null) return value;
+        for (String attr : manager.getKeys())
+        {
+            int amount = getAttribute(attr);
+            if (amount > 0)
+            {
+                value = manager.getAttribute(attr).modify(component, key, self, value, amount);
+            }
+        }
+        return value;
+    }
+
+    /**
+     * Opens the attribute menu
+     */
+    public void openAttributeMenu()
+    {
+        Player player = getPlayer();
+        if (SkillAPI.getSettings().isAttributesEnabled() && player != null)
+        {
+            AttributeManager manager = SkillAPI.getAttributeManager();
+            Inventory inv = InventoryManager.createInventory(AttributeListener.MENU_KEY, (manager.getKeys().size() + 8) / 9, "Attributes (" + attribPoints + " points)");
+            int i = 0;
+            for (String key : manager.getKeys())
+            {
+                ItemStack icon = manager.getAttribute(key).getIcon().clone();
+                ItemMeta meta = icon.getItemMeta();
+                meta.setDisplayName(meta.getDisplayName().replace("{amount}", "" + getAttribute(key)));
+                icon.setItemMeta(meta);
+                inv.setItem(i++, icon);
+            }
+            player.openInventory(inv);
+        }
+    }
+
+    /**
+     * Retrieves the player's attribute data.
+     * Modifying this will modify the player's
+     * actual data.
+     *
+     * @return the player's attribute data
+     */
+    public HashMap<String, Integer> getAttributeData()
+    {
+        return attributes;
     }
 
     ///////////////////////////////////////////////////////
@@ -180,15 +477,41 @@ public final class PlayerData
      */
     public void giveSkill(Skill skill, PlayerClass parent)
     {
-        String key = skill.getName().toLowerCase();
+        String key = skill.getKey();
         if (!skills.containsKey(key))
         {
             PlayerSkill data = new PlayerSkill(this, skill, parent);
+            combos.addSkill(skill);
             skills.put(key, data);
-            while (data.getCost() == 0 && !data.isMaxed() && data.getLevelReq() <= data.getPlayerClass().getLevel())
+            autoLevel(skill);
+        }
+    }
+
+    /**
+     * Attempts to auto-level any skills that are able to do so
+     */
+    public void autoLevel()
+    {
+        for (PlayerSkill skill : skills.values())
+        {
+            autoLevel(skill.getData());
+        }
+    }
+
+    private void autoLevel(Skill skill)
+    {
+        PlayerSkill data = skills.get(skill.getKey());
+        if (data == null) return;
+
+        int lastLevel = data.getLevel();
+        while (data.getData().canAutoLevel() && !data.isMaxed() && data.getLevelReq() <= data.getPlayerClass().getLevel())
+        {
+            upgradeSkill(skill);
+            if (lastLevel == data.getLevel())
             {
-                upgradeSkill(skill);
+                break;
             }
+            lastLevel++;
         }
     }
 
@@ -221,7 +544,7 @@ public final class PlayerData
         if (skill.getSkillReq() != null)
         {
             PlayerSkill req = skills.get(skill.getSkillReq().toLowerCase());
-            if (req == null || req.getLevel() < skill.getSkillReqLevel())
+            if (req != null && req.getLevel() < skill.getSkillReqLevel())
             {
                 return false;
             }
@@ -262,6 +585,7 @@ public final class PlayerData
             if (data.getLevel() == 1)
             {
                 Bukkit.getPluginManager().callEvent(new PlayerSkillUnlockEvent(this, data));
+                this.autoLevel();
             }
 
             return true;
@@ -292,6 +616,12 @@ public final class PlayerData
         // Must be a valid available skill
         PlayerSkill data = skills.get(skill.getName().toLowerCase());
         if (data == null)
+        {
+            return false;
+        }
+
+        // Must not be a free skill
+        if (data.getCost() == 0)
         {
             return false;
         }
@@ -382,13 +712,19 @@ public final class PlayerData
                 return false;
             }
 
-            player.openInventory(playerClass.getData().getSkillTree().getInventory(this));
+            player.openInventory(((InventoryTree) playerClass.getData().getSkillTree()).getInventory(this));
             return true;
         }
 
         // Show list of classes that have skill trees
         else
         {
+            Inventory inv = InventoryManager.createInventory(TreeListener.CLASS_LIST_KEY, (classes.size() + 8) / 9, player.getName());
+            for (PlayerClass c : classes.values())
+            {
+                inv.addItem(c.getData().getIcon());
+            }
+            player.openInventory(inv);
             return true;
         }
     }
@@ -407,6 +743,18 @@ public final class PlayerData
     public boolean hasClass()
     {
         return classes.size() > 0;
+    }
+
+    /**
+     * Checks whether or not a player has a class within the given group
+     *
+     * @param group class group to check
+     *
+     * @return true if has a class in the group, false otherwise
+     */
+    public boolean hasClass(String group)
+    {
+        return classes.containsKey(group);
     }
 
     /**
@@ -466,18 +814,27 @@ public final class PlayerData
      */
     public PlayerClass setClass(RPGClass rpgClass)
     {
-
         PlayerClass c = classes.remove(rpgClass.getGroup());
         if (c != null)
         {
             for (Skill skill : c.getData().getSkills())
             {
                 skills.remove(skill.getName().toLowerCase());
+                combos.removeSkill(skill);
             }
         }
 
-        classes.put(rpgClass.getGroup(), new PlayerClass(this, rpgClass));
-        updateLevelBar();
+        PlayerClass classData = new PlayerClass(this, rpgClass);
+        classes.put(rpgClass.getGroup(), classData);
+
+        // Add in missing skills
+        for (Skill skill : rpgClass.getSkills())
+        {
+            giveSkill(skill, classData);
+        }
+
+        updateHealthAndMana(getPlayer());
+        updateScoreboard();
         return classes.get(rpgClass.getGroup());
     }
 
@@ -491,7 +848,9 @@ public final class PlayerData
      */
     public boolean isExactClass(RPGClass rpgClass)
     {
-        return rpgClass != null && classes.get(rpgClass.getGroup()).getData() == rpgClass;
+        if (rpgClass == null) return false;
+        PlayerClass c = classes.get(rpgClass.getGroup());
+        return (c != null) && (c.getData() == rpgClass);
     }
 
     /**
@@ -509,7 +868,10 @@ public final class PlayerData
             return false;
         }
 
-        RPGClass temp = classes.get(rpgClass.getGroup()).getData();
+        PlayerClass pc = classes.get(rpgClass.getGroup());
+        if (pc == null) return false;
+
+        RPGClass temp = pc.getData();
         while (temp != null)
         {
             if (temp == rpgClass)
@@ -533,6 +895,14 @@ public final class PlayerData
      */
     public boolean canProfess(RPGClass rpgClass)
     {
+        if (rpgClass.isNeedsPermission())
+        {
+            Player p = getPlayer();
+            if (p == null || (!p.hasPermission(Permissions.CLASS) && !p.hasPermission(Permissions.CLASS + "." + rpgClass.getName().toLowerCase().replace(" ", "-"))))
+            {
+                return false;
+            }
+        }
         if (classes.containsKey(rpgClass.getGroup()))
         {
             PlayerClass current = classes.get(rpgClass.getGroup());
@@ -553,18 +923,37 @@ public final class PlayerData
      */
     public void reset(String group)
     {
+        stopPassives(getPlayer());
+        clearBonuses();
         PlayerClass playerClass = classes.remove(group);
         if (playerClass != null)
         {
+            // Remove skills
             RPGClass data = playerClass.getData();
             for (Skill skill : data.getSkills())
             {
                 skills.remove(skill.getName());
+                combos.removeSkill(skill);
             }
 
+            // Update GUI features
+            if (getPlayer() != null)
+            {
+                ClassBoardManager.clear(new VersionPlayer(getPlayer()));
+            }
+
+            // Call the event
             Bukkit.getPluginManager().callEvent(new PlayerClassChangeEvent(playerClass, data, null));
-            updateLevelBar();
         }
+
+        // Restore default class if applicable
+        GroupSettings settings = SkillAPI.getSettings().getGroupSettings(group);
+        RPGClass rpgClass = settings.getDefault();
+        if (rpgClass != null && settings.getPermission() == null)
+        {
+            setClass(rpgClass);
+        }
+        updateHealthAndMana(player.getPlayer());
     }
 
     /**
@@ -573,10 +962,15 @@ public final class PlayerData
      */
     public void resetAll()
     {
-        for (String key : classes.keySet())
+        ArrayList<String> keys = new ArrayList<String>(classes.keySet());
+        for (String key : keys)
         {
             reset(key);
         }
+        skills.clear();
+        binds.clear();
+        attributes.clear();
+        attribPoints = 0;
     }
 
     /**
@@ -621,6 +1015,7 @@ public final class PlayerData
                 if (!skills.containsKey(skill.getKey()))
                 {
                     skills.put(skill.getKey(), new PlayerSkill(this, skill, current));
+                    combos.addSkill(skill);
                 }
             }
 
@@ -647,7 +1042,6 @@ public final class PlayerData
         {
             playerClass.giveExp(amount, source);
         }
-        updateLevelBar();
     }
 
     /**
@@ -657,9 +1051,12 @@ public final class PlayerData
     {
         for (PlayerClass playerClass : classes.values())
         {
-            playerClass.loseExp(playerClass.getData().getGroupSettings().getDeathPenalty());
+            double penalty = playerClass.getData().getGroupSettings().getDeathPenalty();
+            if (penalty > 0)
+            {
+                playerClass.loseExp(penalty);
+            }
         }
-        updateLevelBar();
     }
 
     /**
@@ -686,7 +1083,7 @@ public final class PlayerData
                 playerClass.giveExp(exp, source);
             }
         }
-        updateLevelBar();
+        updateHealthAndMana(getPlayer());
     }
 
     /**
@@ -740,11 +1137,12 @@ public final class PlayerData
         {
             health = 20;
         }
-        VersionManager.setMaxHealth(player, health);
+        if (SkillAPI.getSettings().isModifyHealth())
+            VersionManager.setMaxHealth(player, health);
         mana = Math.min(mana, maxMana);
 
         // Health scaling is available starting with 1.6.2
-        if (VersionManager.isVersionAtLeast(VersionManager.V1_6_2))
+        if (SkillAPI.getSettings().isModifyHealth() && VersionManager.isVersionAtLeast(VersionManager.V1_6_2))
         {
             if (SkillAPI.getSettings().isOldHealth())
             {
@@ -772,7 +1170,6 @@ public final class PlayerData
         if (player != null)
         {
             VersionManager.setMaxHealth(player, player.getMaxHealth() + amount);
-            VersionManager.heal(player, amount);
         }
     }
 
@@ -871,6 +1268,10 @@ public final class PlayerData
             {
                 mana = maxMana;
             }
+            if (mana < 0)
+            {
+                mana = 0;
+            }
         }
     }
 
@@ -905,6 +1306,15 @@ public final class PlayerData
                 mana = 0;
             }
         }
+    }
+
+    /**
+     * Clears bonus health/mana
+     */
+    public void clearBonuses()
+    {
+        bonusMana = 0;
+        bonusHealth = 0;
     }
 
     ///////////////////////////////////////////////////////
@@ -959,10 +1369,10 @@ public final class PlayerData
      */
     public boolean bind(Material mat, PlayerSkill skill)
     {
-        // Make sure the skill is owned by the player
-        if (skill != null && skill.getPlayerData() != this)
+        // Special cases
+        if (mat == null || (skill != null && skill.getPlayerData() != this))
         {
-            throw new IllegalArgumentException("That skill does not belong to this player!");
+            return false;
         }
 
         PlayerSkill bound = getBoundSkill(mat);
@@ -1021,7 +1431,8 @@ public final class PlayerData
      */
     public void clearBinds(Skill skill)
     {
-        for (Material key : binds.keySet())
+        ArrayList<Material> keys = new ArrayList<Material>(binds.keySet());
+        for (Material key : keys)
         {
             PlayerSkill bound = binds.get(key);
             if (bound.getData() == skill)
@@ -1053,36 +1464,9 @@ public final class PlayerData
     public void updateScoreboard()
     {
         PlayerClass main = getMainClass();
-        if (main != null)
+        if (main != null && !init)
         {
             ClassBoardManager.update(this, main.getData().getPrefix(), main.getData().getPrefixColor());
-        }
-    }
-
-    /**
-     * Updates the level bar for the player if they're online and
-     * the setting is enabled. The level bar will be set to the
-     * level and experience progress of the main group's profession.
-     * If the main group doesn't have a profession, this will fall back
-     * to the first profession found or set the level to 0 if not
-     * professed as any class.
-     */
-    public void updateLevelBar()
-    {
-        Player player = getPlayer();
-        if (player != null && SkillAPI.getSettings().isUseLevelBar())
-        {
-            if (hasClass())
-            {
-                PlayerClass c = getMainClass();
-                player.setLevel(c.getLevel());
-                player.setExp((float) (c.getExp() / c.getRequiredExp()));
-            }
-            else
-            {
-                player.setLevel(0);
-                player.setExp(0);
-            }
         }
     }
 
@@ -1250,7 +1634,7 @@ public final class PlayerData
             {
                 try
                 {
-                    if (((TargetSkill) skill.getData()).cast(p, target, level, Protection.isAlly(p, target)))
+                    if (((TargetSkill) skill.getData()).cast(p, target, level, !SkillAPI.getSettings().canAttack(p, target)))
                     {
                         skill.startCooldown();
                         if (SkillAPI.getSettings().isShowSkillMessages())

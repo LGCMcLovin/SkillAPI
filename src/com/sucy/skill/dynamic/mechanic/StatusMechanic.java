@@ -11,8 +11,8 @@ import java.util.List;
  */
 public class StatusMechanic extends EffectComponent
 {
-    private static final String KEY     = "status";
-    private static final String SECONDS = "seconds";
+    private static final String KEY      = "status";
+    private static final String DURATION = "duration";
 
     /**
      * Executes the component
@@ -24,15 +24,16 @@ public class StatusMechanic extends EffectComponent
      * @return true if applied to something, false otherwise
      */
     @Override
-    public boolean execute(final LivingEntity caster, final int level, final List<LivingEntity> targets)
+    public boolean execute(LivingEntity caster, int level, List<LivingEntity> targets)
     {
         if (targets.size() == 0 || !settings.has(KEY))
         {
             return false;
         }
 
+        boolean isSelf = targets.size() == 1 && targets.get(0) == caster;
         String key = settings.getString(KEY, "stun").toLowerCase();
-        double seconds = settings.getAttr(SECONDS, level, 3.0);
+        double seconds = attr(caster, DURATION, level, 3.0, isSelf);
         int ticks = (int) (seconds * 20);
         for (LivingEntity target : targets)
         {

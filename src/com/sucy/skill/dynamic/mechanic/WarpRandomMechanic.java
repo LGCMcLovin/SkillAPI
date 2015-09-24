@@ -30,7 +30,7 @@ public class WarpRandomMechanic extends EffectComponent
      * @return true if applied to something, false otherwise
      */
     @Override
-    public boolean execute(final LivingEntity caster, final int level, final List<LivingEntity> targets)
+    public boolean execute(LivingEntity caster, int level, List<LivingEntity> targets)
     {
         if (targets.size() == 0)
         {
@@ -38,9 +38,10 @@ public class WarpRandomMechanic extends EffectComponent
         }
 
         // Get the world
+        boolean isSelf = targets.size() == 1 && targets.get(0) == caster;
         boolean throughWalls = settings.getString(WALL, "false").toLowerCase().equals("true");
         boolean horizontal = !settings.getString(HORIZONTAL, "true").toLowerCase().equals("false");
-        double distance = settings.getAttr(DISTANCE, level, 3.0);
+        double distance = attr(caster, DISTANCE, level, 3.0, isSelf);
 
         for (LivingEntity target : targets)
         {

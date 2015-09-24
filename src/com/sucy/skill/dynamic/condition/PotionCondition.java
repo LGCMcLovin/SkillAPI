@@ -29,7 +29,7 @@ public class PotionCondition extends EffectComponent
     {
         boolean active = !settings.getString(TYPE, "active").toLowerCase().equals("not active");
         String potion = settings.getString(POTION, "").toUpperCase().replace(' ', '_');
-        PotionEffectType type = null;
+        PotionEffectType type;
         ArrayList<LivingEntity> list = new ArrayList<LivingEntity>();
         try
         {
@@ -49,7 +49,7 @@ public class PotionCondition extends EffectComponent
                 boolean has = false;
                 for (PotionEffectType check : PotionEffectType.values())
                 {
-                    if (target.hasPotionEffect(check))
+                    if (check != null && target.hasPotionEffect(check))
                     {
                         has = true;
                         break;
